@@ -6,7 +6,7 @@ import streamlit as st
 import plotly.express as px
 import os
 
-DB_FILE = "/data/bakery_tracker.db"
+DB_FILE = "/tmp/bakery_tracker.db"
 FUND_LOOKBACK_DAYS = 14  # نافذة تمويل آخر X يوم
 
 # ---------- إعداد الواجهة ----------
