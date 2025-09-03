@@ -745,14 +745,14 @@ with TAB_UNIFIED:
     "🧾 الإدخال الموحّد",
     "📈 لوحة المتابعة",                    add_money_move(dte, "cash" if owner_repayment_src == "خزنة" else "bank",
                                    +int(owner_repayment), "رد سلفة")
-                if int(owner_injection or 0) > 0:
+            if int(owner_injection or 0) > 0:
                     add_money_move(dte, "cash" if owner_injection_src == "خزنة" else "bank",
                                    +int(owner_injection), "تمويل")
-                if int(funding or 0) != 0:
+            if int(funding or 0) != 0:
                     add_money_move(dte, "cash" if funding_src == "خزنة" else "bank",
                                    int(funding), "تحويلات أخرى")
 
-                st.success("تم حفظ اليوميات وحركة النقد المرتبطة.")
+            st.success("تم حفظ اليوميات وحركة النقد المرتبطة.")
 
     # ============ القسم B: توريد العملاء ============
     with st.expander("B) توريد العملاء (صامولي/مدور) نقدي/آجل", expanded=False):
