@@ -393,7 +393,7 @@ TAB_INPUT, TAB_DASH, TAB_MANAGE, TAB_CLIENTS, TAB_REPORT = st.tabs([
 with TAB_INPUT:
     st.subheader("بيانات اليوم")
     c0, c1, c2 = st.columns(3)
-    dte = c0.date_input("التاريخ", value=date.today())
+    dte = c0.date_input("التاريخ", value=date.today(), key="in_date")
     flour_bags = c1.number_input("جوالات الدقيق المستهلكة", min_value=0, step=1, format="%d")
     flour_bag_price = c2.number_input("سعر جوال الدقيق", min_value=0, step=1, format="%d")
 
@@ -604,10 +604,10 @@ with TAB_MANAGE:
     st.markdown("---")
     st.markdown("#### حركة نقد مباشرة (عام)")
     k1, k2, k3, k4 = st.columns(4)
-    mv_date = k1.date_input("التاريخ", value=date.today())
-    mv_source = k2.selectbox("المصدر", ["خزنة", "بنك"], index=0)
+    mv_date = k1.date_input("التاريخ", value=date.today(), key="manage_mv_date")
+    mv_source = k2.selectbox("المصدر", ["خزنة", "بنك"], index=0, key="manage_mv_source")
     mv_amount = k3.number_input("المبلغ (+داخل / -خارج)", value=0, step=1, format="%d")
-    mv_reason = k4.text_input("السبب", value="حركة يدوية")
+    mv_reason = k4.text_input("السبب", value="حركة يدوية", key="manage_mv_reason")
     if st.button("➕ إضافة حركة نقد"):
         add_money_move(mv_date, "cash" if mv_source == "خزنة" else "bank", int(mv_amount), mv_reason or "حركة")
         st.success("تمت إضافة الحركة.")
@@ -649,7 +649,7 @@ with TAB_CLIENTS:
     else:
         ca, cb, cc = st.columns([2, 1, 1])
         idx = ca.selectbox("اختر العميل", options=act.index, format_func=lambda i: act.loc[i, "name"])
-        d_delivery = cb.date_input("تاريخ التوريد", value=date.today())
+        d_delivery = cb.date_input("تاريخ التوريد", value=date.today(), key="delivery_date")
         cash_source_for_cash = cc.selectbox("مصدر التحصيل النقدي", ["خزنة", "بنك"], index=0)
 
         st.caption("**توريد صامولي**")
@@ -679,9 +679,9 @@ with TAB_CLIENTS:
     else:
         p1, p2, p3, p4 = st.columns(4)
         idx2 = p1.selectbox("اختر العميل", options=act.index, format_func=lambda i: act.loc[i, "name"], key="payc")
-        p_date = p2.date_input("تاريخ السداد", value=date.today())
+        p_date = p2.date_input("تاريخ السداد", value=date.today(), key="client_pay_date")
         p_amount = p3.number_input("مبلغ السداد", min_value=0, step=1, format="%d")
-        p_src = p4.selectbox("المصدر", ["خزنة", "بنك"], index=0)
+        p_src = p4.selectbox("المصدر", ["خزنة", "بنك"], index=0, key="client_pay_source")
         note = st.text_input("ملاحظة (اختياري)", value="سداد عميل")
         if st.button("💾 حفظ سداد العميل"):
             add_client_payment(p_date, int(act.loc[idx2, "id"]), p_amount, "cash" if p_src == "خزنة" else "bank", note)
@@ -756,9 +756,8 @@ with TAB_REPORT:
     # -------- تقرير شهري --------
     st.markdown("### 🗓 تقرير شهري")
     yr, mo = st.columns(2)
-    R_y = yr.number_input("السنة", min_value=2020, max_value=2100, value=date.today().year, step=1, format="%d")
-    R_m = mo.number_input("الشهر", min_value=1, max_value=12, value=date.today().month, step=1, format="%d")
-
+    R_y = yr.number_input("السنة", min_value=2020, max_value=2100, value=date.today().year, step=1, format="%d", key="report_year")
+    R_m = mo.number_input("الشهر", min_value=1, max_value=12, value=date.today().month, step=1, format="%d", key="report_month")
     if st.button("⬇️ تنزيل التقرير الشهري (Excel)"):
         df = fetch_daily_df()
         if df.empty:
@@ -891,9 +890,8 @@ with TAB_REPORT:
 
     # اختار أي تاريخ داخل الأسبوع؛ هنحسب الإثنين إلى الأحد تلقائي
     w_col1, w_col2 = st.columns(2)
-    picked_day = w_col1.date_input("اختر يوم داخل الأسبوع", value=date.today())
-    show_chart = w_col2.checkbox("عرض مخطط الربح خلال الأسبوع", value=True)
-
+    picked_day = w_col1.date_input("اختر يوم داخل الأسبوع", value=date.today(), key="weekly_pick_day")
+    show_chart = w_col2.checkbox("عرض مخطط الربح خلال الأسبوع", value=True, key="weekly_show_chart")
     # حساب مدى الأسبوع (الإثنين بدايةً)
     picked_ts = pd.Timestamp(picked_day)
     week_start = picked_ts - pd.Timedelta(days=(picked_ts.weekday()))   # Monday
