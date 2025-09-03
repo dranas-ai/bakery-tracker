@@ -554,14 +554,192 @@ st.title("📊 نظام متابعة المخبز — شامل (تجريبي غ�
 init_db()
 
 # التبويبات الرئيسية (ستُستخدم في الأجزاء التالية)
-TAB_INPUT, TAB_DASH, TAB_MANAGE, TAB_CLIENTS, TAB_REPORT = st.tabs([
-    "📝 الإدخال اليومي",
+TAB_UNIFIED, TAB_DASH, TAB_REPORT = st.tabs([
+    "🧾 الإدخال الموحّد",
     "📈 لوحة المتابعة",
-    "🧰 إدارة البيانات",
-    "📦 العملاء والتوريد",
     "📑 التقارير",
 ])
+with TAB_UNIFIED:
+    st.subheader("مركز الإدخال اليومي — موحّد")
 
+    # (اختياري لاحقًا) اختيار الفرع لو فعّلنا الفروع
+    # branch_id = 1  # لاحقًا نضيف Dropdown
+
+    # ============ القسم A: اليوميات ============
+    with st.expander("A) اليوميات: إنتاج/تسعير + مصروفات + تمويلات", expanded=True):
+        with st.form("form_daily", clear_on_submit=False):
+            c0, c1, c2 = st.columns(3)
+            dte = c0.date_input("التاريخ", value=date.today(), key="in_date")
+            flour_bags = c1.number_input("جوالات الدقيق المستهلكة", min_value=0, step=1, format="%d")
+            flour_bag_price = c2.number_input("سعر جوال الدقيق", min_value=0, step=1, format="%d")
+
+            st.markdown("**الإنتاج والتسعير بالألف**")
+            s1, s2, s3, s4 = st.columns(4)
+            units_samoli = s1.number_input("إنتاج الصامولي (عدد)", min_value=0, step=10, format="%d")
+            per_thousand_samoli = s2.number_input("الصامولي: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d")
+            units_madour = s3.number_input("إنتاج المدور (عدد)", min_value=0, step=10, format="%d")
+            per_thousand_madour = s4.number_input("المدور: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d")
+
+            st.markdown("**المصروفات التشغيلية**")
+            e1, e2, e3, e4, e5 = st.columns(5)
+            flour_extra = e1.number_input("مصاريف دقيق إضافية", min_value=0, step=1, format="%d")
+            yeast = e2.number_input("خميرة", min_value=0, step=1, format="%d")
+            salt = e3.number_input("ملح", min_value=0, step=1, format="%d")
+            oil = e4.number_input("زيت/سمن", min_value=0, step=1, format="%d")
+            gas = e5.number_input("غاز", min_value=0, step=1, format="%d")
+
+            e6, e7, e8, e9, e10 = st.columns(5)
+            electricity = e6.number_input("كهرباء", min_value=0, step=1, format="%d")
+            water = e7.number_input("مياه", min_value=0, step=1, format="%d")
+            salaries = e8.number_input("رواتب", min_value=0, step=1, format="%d")
+            maintenance = e9.number_input("صيانة", min_value=0, step=1, format="%d")
+            petty = e10.number_input("نثريات", min_value=0, step=1, format="%d")
+
+            e11, e12, e13 = st.columns(3)
+            other_exp = e11.number_input("مصاريف أخرى", min_value=0, step=1, format="%d")
+            ice = e12.number_input("ثلج", min_value=0, step=1, format="%d")
+            bags = e13.number_input("أكياس", min_value=0, step=1, format="%d")
+
+            e14, e15 = st.columns(2)
+            daily_meal = e14.number_input("فطور يومي", min_value=0, step=1, format="%d")
+            exp_pay_source = e15.selectbox("مصدر صرف المصروفات لليوم (اختياري)", ["لا تسجل", "خزنة", "بنك"], index=0)
+
+            st.markdown("**سلفة / رد سلفة / تمويل / تحويلات أخرى (لا تؤثر على الربح)**")
+            w1, w2, w3, w4 = st.columns(4)
+            owner_withdrawal = w1.number_input("سلفة", min_value=0, step=1, format="%d")
+            owner_withdrawal_src = w1.selectbox("مصدر السلفة", ["خزنة", "بنك"], index=0, key="wdsrc")
+
+            owner_repayment = w2.number_input("رد سلفة", min_value=0, step=1, format="%d")
+            owner_repayment_src = w2.selectbox("مصدر رد السلفة", ["خزنة", "بنك"], index=0, key="rpsrc")
+
+            owner_injection = w3.number_input("تمويل", min_value=0, step=1, format="%d")
+            owner_injection_src = w3.selectbox("مصدر التمويل", ["خزنة", "بنك"], index=1, key="injsrc")
+
+            funding = w4.number_input("تحويلات أخرى (يسمح بسالب/موجب)", value=0, step=1, format="%d")
+            funding_src = w4.selectbox("مصدر التحويل", ["خزنة", "بنك"], index=1, key="fdsrc")
+
+            st.markdown("**حقول وصفية (اختياري)**")
+            r1, r2 = st.columns(2)
+            returns = r1.number_input("مرتجع/هالك", min_value=0, step=1, format="%d")
+            discounts = r2.number_input("خصومات/عروض", min_value=0, step=1, format="%d")
+
+            subA = st.form_submit_button("✅ حفظ اليوميات")
+            if subA:
+                row = (
+                    dte.isoformat(),
+                    int(units_samoli or 0), int(per_thousand_samoli or 0),
+                    int(units_madour or 0), int(per_thousand_madour or 0),
+                    int(flour_bags or 0), int(flour_bag_price or 0),
+                    int(flour_extra or 0), int(yeast or 0), int(salt or 0), int(oil or 0), int(gas or 0),
+                    int(electricity or 0), int(water or 0), int(salaries or 0), int(maintenance or 0),
+                    int(petty or 0), int(other_exp or 0), int(ice or 0), int(bags or 0), int(daily_meal or 0),
+                    int(owner_withdrawal or 0), int(owner_repayment or 0), int(owner_injection or 0), int(funding or 0),
+                    int(returns or 0), int(discounts or 0),
+                )
+                insert_daily(row)
+
+                total_daily_oper_exp = sum([
+                    int(flour_extra or 0), int(yeast or 0), int(salt or 0), int(oil or 0), int(gas or 0),
+                    int(electricity or 0), int(water or 0), int(salaries or 0), int(maintenance or 0),
+                    int(petty or 0), int(other_exp or 0), int(ice or 0), int(bags or 0), int(daily_meal or 0),
+                ])
+                if exp_pay_source in ("خزنة", "بنك") and total_daily_oper_exp > 0:
+                    add_money_move(dte, "cash" if exp_pay_source == "خزنة" else "bank",
+                                   -total_daily_oper_exp, "مصروفات تشغيل لليوم")
+
+                if int(owner_withdrawal or 0) > 0:
+                    add_money_move(dte, "cash" if owner_withdrawal_src == "خزنة" else "bank",
+                                   -int(owner_withdrawal), "سلفة")
+                if int(owner_repayment or 0) > 0:
+                    add_money_move(dte, "cash" if owner_repayment_src == "خزنة" else "bank",
+                                   +int(owner_repayment), "رد سلفة")
+                if int(owner_injection or 0) > 0:
+                    add_money_move(dte, "cash" if owner_injection_src == "خزنة" else "bank",
+                                   +int(owner_injection), "تمويل")
+                if int(funding or 0) != 0:
+                    add_money_move(dte, "cash" if funding_src == "خزنة" else "bank",
+                                   int(funding), "تحويلات أخرى")
+
+                st.success("تم حفظ اليوميات وحركة النقد المرتبطة.")
+
+    # ============ القسم B: توريد العملاء ============
+    with st.expander("B) توريد العملاء (صامولي/مدور) نقدي/آجل", expanded=False):
+        act = list_clients(active_only=True)
+        if act.empty:
+            st.info("أضف عميلًا نشطًا أولاً من قسم إدارة العملاء.")
+        else:
+            with st.form("form_client_delivery"):
+                ca, cb, cc = st.columns([2, 1, 1])
+                idx = ca.selectbox("اختر العميل", options=act.index, format_func=lambda i: act.loc[i, "name"])
+                d_delivery = cb.date_input("تاريخ التوريد", value=date.today())
+                cash_source_for_cash = cc.selectbox("مصدر التحصيل النقدي", ["خزنة", "بنك"], index=0)
+
+                st.caption("**توريد صامولي**")
+                cs1, cs2, cs3 = st.columns(3)
+                u_s = cs1.number_input("عدد الصامولي", min_value=0, step=10, format="%d")
+                p_s = cs2.number_input("الصامولي: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d")
+                pay_s = cs3.selectbox("طريقة الدفع", ["cash", "credit"], index=0)
+
+                st.caption("**توريد مدور**")
+                cm1, cm2, cm3 = st.columns(3)
+                u_m = cm1.number_input("عدد المدور", min_value=0, step=10, format="%d")
+                p_m = cm2.number_input("المدور: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d")
+                pay_m = cm3.selectbox("طريقة الدفع ", ["cash", "credit"], index=0)
+
+                subB = st.form_submit_button("💾 حفظ توريد العميل")
+                if subB:
+                    cid = int(act.loc[idx, "id"])
+                    if u_s > 0:
+                        add_client_delivery(d_delivery, cid, "samoli", u_s, p_s, pay_s,
+                                            "cash" if cash_source_for_cash == "خزنة" else "bank")
+                    if u_m > 0:
+                        add_client_delivery(d_delivery, cid, "madour", u_m, p_m, pay_m,
+                                            "cash" if cash_source_for_cash == "خزنة" else "bank")
+                    st.success("تم حفظ توريد العميل.")
+
+    # ============ القسم C: سداد عملاء (للآجل) ============
+    with st.expander("C) سداد عملاء (للآجل)", expanded=False):
+        act2 = list_clients(active_only=True)
+        if act2.empty:
+            st.info("لا يوجد عملاء نشطون.")
+        else:
+            with st.form("form_client_payment"):
+                p1, p2, p3, p4 = st.columns(4)
+                idx2 = p1.selectbox("اختر العميل", options=act2.index, format_func=lambda i: act2.loc[i, "name"])
+                p_date = p2.date_input("تاريخ السداد", value=date.today())
+                p_amount = p3.number_input("مبلغ السداد", min_value=0, step=1, format="%d")
+                p_src = p4.selectbox("المصدر", ["خزنة", "بنك"], index=0)
+                note = st.text_input("ملاحظة (اختياري)", value="سداد عميل")
+                subC = st.form_submit_button("💾 حفظ السداد")
+                if subC and p_amount > 0:
+                    add_client_payment(p_date, int(act2.loc[idx2, "id"]), p_amount,
+                                       "cash" if p_src == "خزنة" else "bank", note)
+                    st.success("تم حفظ سداد العميل.")
+
+    # ============ القسم D: حركة نقد عامة ============
+    with st.expander("D) حركة نقد عامة (خزنة/بنك)", expanded=False):
+        with st.form("form_money_move"):
+            k1, k2, k3, k4 = st.columns(4)
+            mv_date = k1.date_input("التاريخ", value=date.today())
+            mv_source = k2.selectbox("المصدر", ["خزنة", "بنك"], index=0)
+            mv_amount = k3.number_input("المبلغ (+داخل / -خارج)", value=0, step=1, format="%d")
+            mv_reason = k4.text_input("السبب", value="حركة يدوية")
+            subD = st.form_submit_button("➕ إضافة حركة نقد")
+            if subD and int(mv_amount or 0) != 0:
+                add_money_move(mv_date, "cash" if mv_source == "خزنة" else "bank", int(mv_amount), mv_reason or "حركة")
+                st.success("تمت إضافة الحركة.")
+
+    # ============ القسم E: إعداد الإيجار الشهري ============
+    with st.expander("E) إعداد الإيجار الشهري (يُوزَّع يوميًا تلقائيًا)", expanded=False):
+        with st.form("form_rent"):
+            y, m, mr = st.columns(3)
+            yy = y.number_input("السنة", min_value=2020, max_value=2100, value=date.today().year, step=1, format="%d")
+            mm = m.number_input("الشهر", min_value=1, max_value=12, value=date.today().month, step=1, format="%d")
+            monthly_rent = mr.number_input("الإيجار الشهري", min_value=0, step=1, format="%d")
+            subE = st.form_submit_button("💾 حفظ الإيجار")
+            if subE:
+                set_monthly_rent(int(yy), int(mm), int(monthly_rent))
+                st.success("تم حفظ الإيجار الشهري.")
 # ====================== الجزء 2/6 — تبويب الإدخال اليومي (بـ st.form) ======================
 with TAB_INPUT:
     st.subheader("بيانات اليوم")
