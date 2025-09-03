@@ -56,117 +56,101 @@ def init_db():
     conn = _connect()
     cur = conn.cursor()
 
-    # سجل اليوميات التشغيلية
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS daily (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            dte TEXT,
-            -- إنتاج وتسعير بالألف
-            units_samoli INTEGER,
-            per_thousand_samoli INTEGER,
-            units_madour INTEGER,
-            per_thousand_madour INTEGER,
-            -- الدقيق
-            flour_bags INTEGER,
-            flour_bag_price INTEGER,
-            -- مصروفات تشغيلية
-            flour_extra INTEGER,
-            yeast INTEGER,
-            salt INTEGER,
-            oil INTEGER,
-            gas INTEGER,
-            electricity INTEGER,
-            water INTEGER,
-            salaries INTEGER,
-            maintenance INTEGER,
-            petty INTEGER,
-            other_exp INTEGER,
-            ice INTEGER,
-            bags INTEGER,
-            daily_meal INTEGER,
-            -- سلفة/رد/تمويل/تحويلات
-            owner_withdrawal INTEGER,   -- سلفة
-            owner_repayment INTEGER,    -- رد سلفة
-            owner_injection INTEGER,    -- تمويل
-            funding INTEGER,            -- تحويلات أخرى (قد تكون موجبة/سالبة)
-            -- حقول وصفية أخرى
-            returns INTEGER,
-            discounts INTEGER
-        )
-        """
+    # ========== الجداول الأساسية ==========
+    # اليوميات
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS daily (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        dte TEXT,
+        units_samoli INTEGER,
+        per_thousand_samoli INTEGER,
+        units_madour INTEGER,
+        per_thousand_madour INTEGER,
+        flour_bags INTEGER,
+        flour_bag_price INTEGER,
+        flour_extra INTEGER,
+        yeast INTEGER,
+        salt INTEGER,
+        oil INTEGER,
+        gas INTEGER,
+        electricity INTEGER,
+        water INTEGER,
+        salaries INTEGER,
+        maintenance INTEGER,
+        petty INTEGER,
+        other_exp INTEGER,
+        ice INTEGER,
+        bags INTEGER,
+        daily_meal INTEGER,
+        owner_withdrawal INTEGER,
+        owner_repayment INTEGER,
+        owner_injection INTEGER,
+        funding INTEGER,
+        returns INTEGER,
+        discounts INTEGER
     )
+    """)
 
-    # عملاء
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS clients (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE,
-            active INTEGER DEFAULT 1
-        )
-        """
+    # العملاء
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS clients (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE,
+        active INTEGER DEFAULT 1
     )
+    """)
 
     # توريدات العملاء
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS client_deliveries (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            dte TEXT,
-            client_id INTEGER,
-            bread_type TEXT,       -- 'samoli' أو 'madour'
-            units INTEGER,
-            per_thousand INTEGER,
-            revenue INTEGER,       -- (units/per_thousand)*1000 مقربة للصحيح
-            payment_method TEXT,   -- 'cash' أو 'credit'
-            cash_source TEXT,      -- 'cash' أو 'bank' عند الدفع النقدي
-            FOREIGN KEY(client_id) REFERENCES clients(id)
-        )
-        """
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS client_deliveries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        dte TEXT,
+        client_id INTEGER,
+        bread_type TEXT,
+        units INTEGER,
+        per_thousand INTEGER,
+        revenue INTEGER,
+        payment_method TEXT,
+        cash_source TEXT,
+        FOREIGN KEY(client_id) REFERENCES clients(id)
     )
+    """)
 
-    # مدفوعات العملاء (لسداد الآجل)
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS client_payments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            dte TEXT,
-            client_id INTEGER,
-            amount INTEGER,
-            source TEXT,           -- 'cash' أو 'bank'
-            note TEXT,
-            FOREIGN KEY(client_id) REFERENCES clients(id)
-        )
-        """
+    # مدفوعات العملاء
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS client_payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        dte TEXT,
+        client_id INTEGER,
+        amount INTEGER,
+        source TEXT,
+        note TEXT,
+        FOREIGN KEY(client_id) REFERENCES clients(id)
     )
+    """)
 
-    # إعداد الإيجار الشهري
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS rent_settings (
-            year INTEGER,
-            month INTEGER,
-            monthly_rent INTEGER,
-            PRIMARY KEY (year, month)
-        )
-        """
+    # الإيجار الشهري
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS rent_settings (
+        year INTEGER,
+        month INTEGER,
+        monthly_rent INTEGER,
+        PRIMARY KEY (year, month)
     )
+    """)
 
-    # حركة النقد (خزنة/بنك)
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS money_moves (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            dte TEXT,
-            source TEXT,    -- 'cash' أو 'bank'
-            amount INTEGER, -- +داخل / -خارج
-            reason TEXT     -- وصف مختصر
-        )
-        """
+    # حركة النقد
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS money_moves (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        dte TEXT,
+        source TEXT,
+        amount INTEGER,
+        reason TEXT
     )
+    """)
 
-    # ترقيات خفيفة لو أعمدة ناقصة في daily
+    # ترقيات أعمدة ناقصة في daily
     cur.execute("PRAGMA table_info(daily)")
     cols = {r[1] for r in cur.fetchall()}
     for col, sql in [
@@ -179,18 +163,199 @@ def init_db():
         ("discounts", "ALTER TABLE daily ADD COLUMN discounts INTEGER"),
     ]:
         if col not in cols:
+            try: cur.execute(sql)
+            except Exception: pass
+
+    # ========== الفروع وقابلية التوسع ==========
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS branches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        active INTEGER DEFAULT 1
+    )
+    """)
+    # إنشاء فرع افتراضي إن لم يوجد
+    cur.execute("INSERT OR IGNORE INTO branches(id, name, active) VALUES (1,'الفرع الرئيسي',1)")
+
+    # إضافة branch_id لكل الجداول (بقيمة افتراضية 1)
+    def ensure_branch(table):
+        cur.execute(f"PRAGMA table_info({table})")
+        if "branch_id" not in {r[1] for r in cur.fetchall()}:
             try:
-                cur.execute(sql)
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN branch_id INTEGER DEFAULT 1")
             except Exception:
                 pass
+        # توحيد القيم الفارغة إلى 1
+        cur.execute(f"UPDATE {table} SET branch_id=1 WHERE branch_id IS NULL")
 
-    # ===================== الفهارس (Indexes) =====================
-    # تحسين السرعة في الاستعلامات حسب التاريخ والعملاء
+    for t in ["daily","money_moves","client_deliveries","client_payments","clients"]:
+        ensure_branch(t)
+
+    # ========== فهارس الأداء ==========
     cur.execute("CREATE INDEX IF NOT EXISTS idx_daily_dte ON daily(dte)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_moves_dte ON money_moves(dte)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_cd_dte ON client_deliveries(dte)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_cp_dte ON client_payments(dte)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_clients_name ON clients(name)")
+    # فهارس مدمجة بالفرع
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_daily_branch_date ON daily(branch_id, dte)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_moves_branch_date ON money_moves(branch_id, dte)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_cd_branch_date ON client_deliveries(branch_id, dte)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_cp_branch_date ON client_payments(branch_id, dte)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_clients_branch ON clients(branch_id)")
+
+    # ========== قيود الجودة عبر Triggers (SQLite) ==========
+    # bread_type ∈ {samoli, madour}
+    cur.execute("""
+    CREATE TRIGGER IF NOT EXISTS trg_cd_bread_type_ins
+    BEFORE INSERT ON client_deliveries
+    BEGIN
+        SELECT CASE
+            WHEN NEW.bread_type NOT IN ('samoli','madour') THEN
+                RAISE(ABORT, 'bread_type must be samoli or madour')
+        END;
+    END;
+    """)
+    cur.execute("""
+    CREATE TRIGGER IF NOT EXISTS trg_cd_bread_type_upd
+    BEFORE UPDATE ON client_deliveries
+    BEGIN
+        SELECT CASE
+            WHEN NEW.bread_type NOT IN ('samoli','madour') THEN
+                RAISE(ABORT, 'bread_type must be samoli or madour')
+        END;
+    END;
+    """)
+
+    # payment_method ∈ {cash, credit}
+    cur.execute("""
+    CREATE TRIGGER IF NOT EXISTS trg_cd_paymethod_ins
+    BEFORE INSERT ON client_deliveries
+    BEGIN
+        SELECT CASE
+            WHEN NEW.payment_method NOT IN ('cash','credit') THEN
+                RAISE(ABORT, 'payment_method must be cash or credit')
+        END;
+    END;
+    """)
+    cur.execute("""
+    CREATE TRIGGER IF NOT EXISTS trg_cd_paymethod_upd
+    BEFORE UPDATE ON client_deliveries
+    BEGIN
+        SELECT CASE
+            WHEN NEW.payment_method NOT IN ('cash','credit') THEN
+                RAISE(ABORT, 'payment_method must be cash or credit')
+        END;
+    END;
+    """)
+
+    # source ∈ {cash, bank} في money_moves و client_payments
+    cur.execute("""
+    CREATE TRIGGER IF NOT EXISTS trg_mm_source_ins
+    BEFORE INSERT ON money_moves
+    BEGIN
+        SELECT CASE
+            WHEN NEW.source NOT IN ('cash','bank') THEN
+                RAISE(ABORT, 'source must be cash or bank')
+        END;
+    END;
+    """)
+    cur.execute("""
+    CREATE TRIGGER IF NOT EXISTS trg_mm_source_upd
+    BEFORE UPDATE ON money_moves
+    BEGIN
+        SELECT CASE
+            WHEN NEW.source NOT IN ('cash','bank') THEN
+                RAISE(ABORT, 'source must be cash or bank')
+        END;
+    END;
+    """)
+    cur.execute("""
+    CREATE TRIGGER IF NOT EXISTS trg_cp_source_ins
+    BEFORE INSERT ON client_payments
+    BEGIN
+        SELECT CASE
+            WHEN NEW.source NOT IN ('cash','bank') THEN
+                RAISE(ABORT, 'source must be cash or bank')
+        END;
+    END;
+    """)
+    cur.execute("""
+    CREATE TRIGGER IF NOT EXISTS trg_cp_source_upd
+    BEFORE UPDATE ON client_payments
+    BEGIN
+        SELECT CASE
+            WHEN NEW.source NOT IN ('cash','bank') THEN
+                RAISE(ABORT, 'source must be cash or bank')
+        END;
+    END;
+    """)
+
+    # قيم غير سالبة (حيث يلزم) في daily — funding يسمح بالسالب/الموجب
+    cur.execute("""
+    CREATE TRIGGER IF NOT EXISTS trg_daily_nonneg_ins
+    BEFORE INSERT ON daily
+    BEGIN
+        SELECT CASE
+            WHEN IFNULL(NEW.units_samoli,0) < 0 OR
+                 IFNULL(NEW.units_madour,0) < 0 OR
+                 IFNULL(NEW.flour_bags,0) < 0 OR
+                 IFNULL(NEW.flour_bag_price,0) < 0 OR
+                 IFNULL(NEW.flour_extra,0) < 0 OR
+                 IFNULL(NEW.yeast,0) < 0 OR
+                 IFNULL(NEW.salt,0) < 0 OR
+                 IFNULL(NEW.oil,0) < 0 OR
+                 IFNULL(NEW.gas,0) < 0 OR
+                 IFNULL(NEW.electricity,0) < 0 OR
+                 IFNULL(NEW.water,0) < 0 OR
+                 IFNULL(NEW.salaries,0) < 0 OR
+                 IFNULL(NEW.maintenance,0) < 0 OR
+                 IFNULL(NEW.petty,0) < 0 OR
+                 IFNULL(NEW.other_exp,0) < 0 OR
+                 IFNULL(NEW.ice,0) < 0 OR
+                 IFNULL(NEW.bags,0) < 0 OR
+                 IFNULL(NEW.daily_meal,0) < 0 OR
+                 IFNULL(NEW.owner_withdrawal,0) < 0 OR
+                 IFNULL(NEW.owner_repayment,0) < 0 OR
+                 IFNULL(NEW.owner_injection,0) < 0 OR
+                 IFNULL(NEW.returns,0) < 0 OR
+                 IFNULL(NEW.discounts,0) < 0
+            THEN RAISE(ABORT, 'negative values not allowed in daily fields')
+        END;
+    END;
+    """)
+    cur.execute("""
+    CREATE TRIGGER IF NOT EXISTS trg_daily_nonneg_upd
+    BEFORE UPDATE ON daily
+    BEGIN
+        SELECT CASE
+            WHEN IFNULL(NEW.units_samoli,0) < 0 OR
+                 IFNULL(NEW.units_madour,0) < 0 OR
+                 IFNULL(NEW.flour_bags,0) < 0 OR
+                 IFNULL(NEW.flour_bag_price,0) < 0 OR
+                 IFNULL(NEW.flour_extra,0) < 0 OR
+                 IFNULL(NEW.yeast,0) < 0 OR
+                 IFNULL(NEW.salt,0) < 0 OR
+                 IFNULL(NEW.oil,0) < 0 OR
+                 IFNULL(NEW.gas,0) < 0 OR
+                 IFNULL(NEW.electricity,0) < 0 OR
+                 IFNULL(NEW.water,0) < 0 OR
+                 IFNULL(NEW.salaries,0) < 0 OR
+                 IFNULL(NEW.maintenance,0) < 0 OR
+                 IFNULL(NEW.petty,0) < 0 OR
+                 IFNULL(NEW.other_exp,0) < 0 OR
+                 IFNULL(NEW.ice,0) < 0 OR
+                 IFNULL(NEW.bags,0) < 0 OR
+                 IFNULL(NEW.daily_meal,0) < 0 OR
+                 IFNULL(NEW.owner_withdrawal,0) < 0 OR
+                 IFNULL(NEW.owner_repayment,0) < 0 OR
+                 IFNULL(NEW.owner_injection,0) < 0 OR
+                 IFNULL(NEW.returns,0) < 0 OR
+                 IFNULL(NEW.discounts,0) < 0
+            THEN RAISE(ABORT, 'negative values not allowed in daily fields')
+        END;
+    END;
+    """)
 
     conn.commit()
     conn.close()
