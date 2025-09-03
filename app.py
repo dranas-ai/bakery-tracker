@@ -184,6 +184,14 @@ def init_db():
             except Exception:
                 pass
 
+    # ===================== الفهارس (Indexes) =====================
+    # تحسين السرعة في الاستعلامات حسب التاريخ والعملاء
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_daily_dte ON daily(dte)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_moves_dte ON money_moves(dte)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_cd_dte ON client_deliveries(dte)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_cp_dte ON client_payments(dte)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_clients_name ON clients(name)")
+
     conn.commit()
     conn.close()
 
@@ -389,100 +397,103 @@ TAB_INPUT, TAB_DASH, TAB_MANAGE, TAB_CLIENTS, TAB_REPORT = st.tabs([
     "📑 التقارير",
 ])
 
-# ====================== الجزء 2/6 — تبويب الإدخال اليومي ======================
+# ====================== الجزء 2/6 — تبويب الإدخال اليومي (بـ st.form) ======================
 with TAB_INPUT:
     st.subheader("بيانات اليوم")
-    c0, c1, c2 = st.columns(3)
-    dte = c0.date_input("التاريخ", value=date.today(), key="in_date")
-    flour_bags = c1.number_input("جوالات الدقيق المستهلكة", min_value=0, step=1, format="%d")
-    flour_bag_price = c2.number_input("سعر جوال الدقيق", min_value=0, step=1, format="%d")
+    with st.form("daily_form", clear_on_submit=False):
+        c0, c1, c2 = st.columns(3)
+        dte = c0.date_input("التاريخ", value=date.today(), key="in_date")
+        flour_bags = c1.number_input("جوالات الدقيق المستهلكة", min_value=0, step=1, format="%d")
+        flour_bag_price = c2.number_input("سعر جوال الدقيق", min_value=0, step=1, format="%d")
 
-    st.markdown("### الإنتاج والتسعير بالألف")
-    s1, s2, s3, s4 = st.columns(4)
-    units_samoli = s1.number_input("إنتاج الصامولي (عدد)", min_value=0, step=10, format="%d")
-    per_thousand_samoli = s2.number_input("الصامولي: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d")
-    units_madour = s3.number_input("إنتاج المدور (عدد)", min_value=0, step=10, format="%d")
-    per_thousand_madour = s4.number_input("المدور: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d")
+        st.markdown("### الإنتاج والتسعير بالألف")
+        s1, s2, s3, s4 = st.columns(4)
+        units_samoli = s1.number_input("إنتاج الصامولي (عدد)", min_value=0, step=10, format="%d")
+        per_thousand_samoli = s2.number_input("الصامولي: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d")
+        units_madour = s3.number_input("إنتاج المدور (عدد)", min_value=0, step=10, format="%d")
+        per_thousand_madour = s4.number_input("المدور: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d")
 
-    st.markdown("### المصروفات اليومية")
-    e1, e2, e3, e4, e5 = st.columns(5)
-    flour_extra = e1.number_input("مصاريف دقيق إضافية", min_value=0, step=1, format="%d")
-    yeast = e2.number_input("خميرة", min_value=0, step=1, format="%d")
-    salt = e3.number_input("ملح", min_value=0, step=1, format="%d")
-    oil = e4.number_input("زيت/سمن", min_value=0, step=1, format="%d")
-    gas = e5.number_input("غاز", min_value=0, step=1, format="%d")
+        st.markdown("### المصروفات اليومية")
+        e1, e2, e3, e4, e5 = st.columns(5)
+        flour_extra = e1.number_input("مصاريف دقيق إضافية", min_value=0, step=1, format="%d")
+        yeast = e2.number_input("خميرة", min_value=0, step=1, format="%d")
+        salt = e3.number_input("ملح", min_value=0, step=1, format="%d")
+        oil = e4.number_input("زيت/سمن", min_value=0, step=1, format="%d")
+        gas = e5.number_input("غاز", min_value=0, step=1, format="%d")
 
-    e6, e7, e8, e9, e10 = st.columns(5)
-    electricity = e6.number_input("كهرباء", min_value=0, step=1, format="%d")
-    water = e7.number_input("مياه", min_value=0, step=1, format="%d")
-    salaries = e8.number_input("رواتب", min_value=0, step=1, format="%d")
-    maintenance = e9.number_input("صيانة", min_value=0, step=1, format="%d")
-    petty = e10.number_input("نثريات", min_value=0, step=1, format="%d")
+        e6, e7, e8, e9, e10 = st.columns(5)
+        electricity = e6.number_input("كهرباء", min_value=0, step=1, format="%d")
+        water = e7.number_input("مياه", min_value=0, step=1, format="%d")
+        salaries = e8.number_input("رواتب", min_value=0, step=1, format="%d")
+        maintenance = e9.number_input("صيانة", min_value=0, step=1, format="%d")
+        petty = e10.number_input("نثريات", min_value=0, step=1, format="%d")
 
-    e11, e12, e13 = st.columns(3)
-    other_exp = e11.number_input("مصاريف أخرى", min_value=0, step=1, format="%d")
-    ice = e12.number_input("ثلج", min_value=0, step=1, format="%d")
-    bags = e13.number_input("أكياس", min_value=0, step=1, format="%d")
+        e11, e12, e13 = st.columns(3)
+        other_exp = e11.number_input("مصاريف أخرى", min_value=0, step=1, format="%d")
+        ice = e12.number_input("ثلج", min_value=0, step=1, format="%d")
+        bags = e13.number_input("أكياس", min_value=0, step=1, format="%d")
 
-    e14, e15 = st.columns(2)
-    daily_meal = e14.number_input("فطور يومي", min_value=0, step=1, format="%d")
-    exp_pay_source = e15.selectbox("مصدر صرف المصروفات لليوم (اختياري)", ["لا تسجل", "خزنة", "بنك"], index=0)
+        e14, e15 = st.columns(2)
+        daily_meal = e14.number_input("فطور يومي", min_value=0, step=1, format="%d")
+        exp_pay_source = e15.selectbox("مصدر صرف المصروفات لليوم (اختياري)", ["لا تسجل", "خزنة", "بنك"], index=0)
 
-    st.markdown("### سلفة / رد سلفة / تمويل / تحويلات أخرى (لا تؤثر على الربح)")
-    w1, w2, w3, w4 = st.columns(4)
-    owner_withdrawal = w1.number_input("سلفة", min_value=0, step=1, format="%d")
-    owner_withdrawal_src = w1.selectbox("مصدر السلفة", ["خزنة", "بنك"], index=0, key="wdsrc")
+        st.markdown("### سلفة / رد سلفة / تمويل / تحويلات أخرى (لا تؤثر على الربح)")
+        w1, w2, w3, w4 = st.columns(4)
+        owner_withdrawal = w1.number_input("سلفة", min_value=0, step=1, format="%d")
+        owner_withdrawal_src = w1.selectbox("مصدر السلفة", ["خزنة", "بنك"], index=0, key="wdsrc")
 
-    owner_repayment = w2.number_input("رد سلفة", min_value=0, step=1, format="%d")
-    owner_repayment_src = w2.selectbox("مصدر رد السلفة", ["خزنة", "بنك"], index=0, key="rpsrc")
+        owner_repayment = w2.number_input("رد سلفة", min_value=0, step=1, format="%d")
+        owner_repayment_src = w2.selectbox("مصدر رد السلفة", ["خزنة", "بنك"], index=0, key="rpsrc")
 
-    owner_injection = w3.number_input("تمويل", min_value=0, step=1, format="%d")
-    owner_injection_src = w3.selectbox("مصدر التمويل", ["خزنة", "بنك"], index=1, key="injsrc")
+        owner_injection = w3.number_input("تمويل", min_value=0, step=1, format="%d")
+        owner_injection_src = w3.selectbox("مصدر التمويل", ["خزنة", "بنك"], index=1, key="injsrc")
 
-    # يسمح بالسالب/الموجب
-    funding = w4.number_input("تحويلات أخرى (يسمح بسالب/موجب)", value=0, step=1, format="%d")
-    funding_src = w4.selectbox("مصدر التحويل", ["خزنة", "بنك"], index=1, key="fdsrc")
+        funding = w4.number_input("تحويلات أخرى (يسمح بسالب/موجب)", value=0, step=1, format="%d")
+        funding_src = w4.selectbox("مصدر التحويل", ["خزنة", "بنك"], index=1, key="fdsrc")
 
-    st.markdown("### حقول وصفية (اختياري)")
-    r1, r2 = st.columns(2)
-    returns = r1.number_input("مرتجع/هالك", min_value=0, step=1, format="%d")
-    discounts = r2.number_input("خصومات/عروض", min_value=0, step=1, format="%d")
+        st.markdown("### حقول وصفية (اختياري)")
+        r1, r2 = st.columns(2)
+        returns = r1.number_input("مرتجع/هالك", min_value=0, step=1, format="%d")
+        discounts = r2.number_input("خصومات/عروض", min_value=0, step=1, format="%d")
 
-    if st.button("✅ حفظ السجل"):
-        row = (
-            dte.isoformat(),
-            units_samoli = s1.number_input("إنتاج الصامولي (عدد)", min_value=0, step=10, format="%d", key="input_units_samoli")
-            per_thousand_samoli = s2.number_input("الصامولي: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d", key="input_pt_samoli")
-            units_madour = s3.number_input("إنتاج المدور (عدد)", min_value=0, step=10, format="%d", key="input_units_madour")
-            per_thousand_madour = s4.number_input("المدور: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d", key="input_pt_madour")
-            flour_bags, flour_bag_price,
-            flour_extra, yeast, salt, oil, gas, electricity, water,
-            salaries, maintenance, petty, other_exp, ice, bags, daily_meal,
-            owner_withdrawal, owner_repayment, owner_injection, funding,
-            returns, discounts,
-        )
-        insert_daily(row)
+        submitted = st.form_submit_button("✅ حفظ السجل")
+        if submitted:
+            row = (
+                dte.isoformat(),
+                int(units_samoli or 0), int(per_thousand_samoli or 0),
+                int(units_madour or 0), int(per_thousand_madour or 0),
+                int(flour_bags or 0), int(flour_bag_price or 0),
+                int(flour_extra or 0), int(yeast or 0), int(salt or 0), int(oil or 0), int(gas or 0),
+                int(electricity or 0), int(water or 0), int(salaries or 0), int(maintenance or 0),
+                int(petty or 0), int(other_exp or 0), int(ice or 0), int(bags or 0), int(daily_meal or 0),
+                int(owner_withdrawal or 0), int(owner_repayment or 0), int(owner_injection or 0), int(funding or 0),
+                int(returns or 0), int(discounts or 0),
+            )
+            insert_daily(row)
 
-        # حركة نقد للمصروفات (اختياري - حسب اختيارك)
-        total_daily_oper_exp = sum([
-            flour_extra, yeast, salt, oil, gas, electricity, water,
-            salaries, maintenance, petty, other_exp, ice, bags, daily_meal,
-        ])
-        if exp_pay_source in ("خزنة", "بنك") and total_daily_oper_exp > 0:
-            add_money_move(dte, "cash" if exp_pay_source == "خزنة" else "bank", -int(total_daily_oper_exp), "مصروفات تشغيل لليوم")
+            total_daily_oper_exp = sum([
+                int(flour_extra or 0), int(yeast or 0), int(salt or 0), int(oil or 0), int(gas or 0),
+                int(electricity or 0), int(water or 0), int(salaries or 0), int(maintenance or 0),
+                int(petty or 0), int(other_exp or 0), int(ice or 0), int(bags or 0), int(daily_meal or 0),
+            ])
+            if exp_pay_source in ("خزنة", "بنك") and total_daily_oper_exp > 0:
+                add_money_move(dte, "cash" if exp_pay_source == "خزنة" else "bank",
+                               -total_daily_oper_exp, "مصروفات تشغيل لليوم")
 
-        # حركة نقد للسلفة/الرد/التمويل/التحويلات الأخرى
-        if owner_withdrawal > 0:
-            add_money_move(dte, "cash" if owner_withdrawal_src == "خزنة" else "bank", -int(owner_withdrawal), "سلفة")
-        if owner_repayment > 0:
-            add_money_move(dte, "cash" if owner_repayment_src == "خزنة" else "bank", +int(owner_repayment), "رد سلفة")
-        if owner_injection > 0:
-            add_money_move(dte, "cash" if owner_injection_src == "خزنة" else "bank", +int(owner_injection), "تمويل")
-        if int(funding) != 0:
-            add_money_move(dte, "cash" if funding_src == "خزنة" else "bank", int(funding), "تحويلات أخرى")
+            if int(owner_withdrawal or 0) > 0:
+                add_money_move(dte, "cash" if owner_withdrawal_src == "خزنة" else "bank",
+                               -int(owner_withdrawal), "سلفة")
+            if int(owner_repayment or 0) > 0:
+                add_money_move(dte, "cash" if owner_repayment_src == "خزنة" else "bank",
+                               +int(owner_repayment), "رد سلفة")
+            if int(owner_injection or 0) > 0:
+                add_money_move(dte, "cash" if owner_injection_src == "خزنة" else "bank",
+                               +int(owner_injection), "تمويل")
+            if int(funding or 0) != 0:
+                add_money_move(dte, "cash" if funding_src == "خزنة" else "bank",
+                               int(funding), "تحويلات أخرى")
 
-        st.success("تم حفظ السجل وحركة النقد المرتبطة به")
-
+            st.success("تم حفظ السجل وحركة النقد المرتبطة به")
     st.caption("⚠️ النسخة غير دائمة — أي إعادة تشغيل/نشر ستمسح البيانات.")
 # ====================== الجزء 3/6 — تبويب لوحة المتابعة ======================
 with TAB_DASH:
@@ -751,6 +762,31 @@ with TAB_CLIENTS:
     ar = fetch_ar_df()
     st.markdown("#### أرصدة الذمم (العملاء الآجل)")
     st.dataframe(ar[["العميل","إيراد آجل","مدفوع","الرصيد"]] if not ar.empty else ar, use_container_width=True)
+    # --- نسخة احتياطية / استرجاع ---
+st.markdown("---")
+st.markdown("#### 🧯 نسخة احتياطية / استرجاع قاعدة البيانات")
+
+# تنزيل ملف SQLite الحالي
+if os.path.exists(DB_FILE) and os.path.getsize(DB_FILE) > 0:
+    with open(DB_FILE, "rb") as f:
+        st.download_button("📥 تنزيل نسخة القاعدة الحالية", f, file_name="bakery_tracker_backup.sqlite",
+                           mime="application/x-sqlite3")
+else:
+    st.info("لا توجد قاعدة بيانات بعد للتنزيل.")
+
+# رفع نسخة لاسترجاعها
+up = st.file_uploader("📤 ارفع ملف SQLite للاسترجاع (سَيَستبدل القاعدة الحالية)", type=["sqlite","db"])
+if up is not None:
+    # احفظ نسخة احتياطية قديمة ثم استبدل
+    try:
+        if os.path.exists(DB_FILE):
+            os.replace(DB_FILE, DB_FILE + ".bak")
+        with open(DB_FILE, "wb") as dst:
+            dst.write(up.read())
+        st.success("تم الاسترجاع بنجاح. أعد تحميل الصفحة لقراءة البيانات.")
+    except Exception as e:
+        st.error(f"تعذر الاسترجاع: {e}")
+
 # ====================== الجزء 6/6 — التقارير (شهري + أسبوعي) ======================
 with TAB_REPORT:
     st.subheader("📑 التقارير")
