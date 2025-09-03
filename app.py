@@ -532,13 +532,12 @@ def fetch_ar_df() -> pd.DataFrame:
 
     credit_rev = dels.loc[dels["payment_method"] == "credit"].groupby("client_id")["revenue"].sum() if not dels.empty else pd.Series(dtype=int)
     paid = pays.groupby("client_id")["amount"].sum() if not pays.empty else pd.Series(dtype=int)
-
     base = pd.DataFrame({"client_id": clients["id"], "العميل": clients["name"]})
     base["إيراد آجل"] = base["client_id"].map(credit_rev).fillna(0).astype(int)
     base["مدفوع"] = base["client_id"].map(paid).fillna(0).astype(int)
     base["الرصيد"] = (base["إيراد آجل"] - base["مدفوع"]).astype(int)
     return base.sort_values("الرصيد", ascending=False)
-# ====================== التهيئة وواجهة المستخدم (Tabs) ======================
+# ====================== التهيئة وواجهة المستخدم ======================
 st.set_page_config(page_title="متابعة المخبز — شامل (غير دائم)", layout="wide")
 st.markdown(
     """
@@ -550,21 +549,23 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# العنوان (ده المقصود بـ st.title تبع الواجهة)
 st.title("📊 نظام متابعة المخبز — شامل (تجريبي غير دائم)")
+
+# مهم جدًا: تهيئة القاعدة قبل أي تبويبات/نوافذ
 init_db()
 
-# التبويبات الرئيسية (ستُستخدم في الأجزاء التالية)
-TAB_UNIFIED, TAB_DASH, TAB_REPORT = st.tabs([
+# تبويبة إدخال واحدة + باقي التبويبات
+TAB_UNIFIED, TAB_DASH, TAB_MANAGE, TAB_CLIENTS, TAB_REPORT = st.tabs([
     "🧾 الإدخال الموحّد",
     "📈 لوحة المتابعة",
+    "🧰 إدارة البيانات",
+    "📦 العملاء والتوريد",
     "📑 التقارير",
 ])
 with TAB_UNIFIED:
     st.subheader("مركز الإدخال اليومي — موحّد")
-
-    # (اختياري لاحقًا) اختيار الفرع لو فعّلنا الفروع
-    # branch_id = 1  # لاحقًا نضيف Dropdown
-
+    ...
     # ============ القسم A: اليوميات ============
     with st.expander("A) اليوميات: إنتاج/تسعير + مصروفات + تمويلات", expanded=True):
         with st.form("form_daily", clear_on_submit=False):
@@ -741,8 +742,10 @@ with TAB_UNIFIED:
                 set_monthly_rent(int(yy), int(mm), int(monthly_rent))
                 st.success("تم حفظ الإيجار الشهري.")
 # ====================== الجزء 2/6 — تبويب الإدخال اليومي (بـ st.form) ======================
-with TAB_INPUT:
-    st.subheader("بيانات اليوم")
+    "🧾 الإدخال الموحّد",
+    "📈 لوحة المتابعة",
+    "📑 التقارير",
+])
     with st.form("daily_form", clear_on_submit=False):
         c0, c1, c2 = st.columns(3)
         dte = c0.date_input("التاريخ", value=date.today(), key="in_date")
@@ -838,96 +841,182 @@ with TAB_INPUT:
 
             st.success("تم حفظ السجل وحركة النقد المرتبطة به")
     st.caption("⚠️ النسخة غير دائمة — أي إعادة تشغيل/نشر ستمسح البيانات.")
-# ====================== الجزء 3/6 — تبويب لوحة المتابعة ======================
-with TAB_DASH:
-    st.subheader("لوحة المتابعة")
-    df = fetch_daily_df()
-    if df.empty:
-        st.info("لا توجد بيانات بعد.")
-    else:
-        total_revenue = int(df["إجمالي المبيعات"].sum())
-        total_exp = int(df["الإجمالي اليومي للمصروفات"].sum())
-        total_profit = int(total_revenue - total_exp)
-        avg_daily_profit = int(df["الربح الصافي لليوم"].replace(0, pd.NA).dropna().mean() or 0)
 
-        # سلفة/رد/تمويل/تحويلات
-        salfa_sum = int(df.get("owner_withdrawal", pd.Series()).fillna(0).sum())
-        radd_sum = int(df.get("owner_repayment", pd.Series()).fillna(0).sum())
-        tamweel_sum = int(df.get("owner_injection", pd.Series()).fillna(0).sum())
-        transfers_sum = int(df.get("funding", pd.Series()).fillna(0).sum())
-        current_balance = tamweel_sum + radd_sum - salfa_sum  # الرصيد بينك وبين المخبز
+    # ============ القسم A: اليوميات ============
+    with st.expander("A) اليوميات: إنتاج/تسعير + مصروفات + تمويلات", expanded=True):
+        with st.form("form_daily", clear_on_submit=False):
+            c0, c1, c2 = st.columns(3)
+            dte = c0.date_input("التاريخ", value=date.today(), key="in_date")
+            flour_bags = c1.number_input("جوالات الدقيق المستهلكة", min_value=0, step=1, format="%d")
+            flour_bag_price = c2.number_input("سعر جوال الدقيق", min_value=0, step=1, format="%d")
 
-        # رصيد الخزنة والبنك
-        bals = money_balances()
-        cash_bal = bals.get("cash", 0)
-        bank_bal = bals.get("bank", 0)
+            st.markdown("**الإنتاج والتسعير بالألف**")
+            s1, s2, s3, s4 = st.columns(4)
+            units_samoli = s1.number_input("إنتاج الصامولي (عدد)", min_value=0, step=10, format="%d")
+            per_thousand_samoli = s2.number_input("الصامولي: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d")
+            units_madour = s3.number_input("إنتاج المدور (عدد)", min_value=0, step=10, format="%d")
+            per_thousand_madour = s4.number_input("المدور: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d")
 
-        # إيجار
-        total_rent = int(df.get("إيجار يومي", pd.Series()).fillna(0).sum())
+            st.markdown("**المصروفات التشغيلية**")
+            e1, e2, e3, e4, e5 = st.columns(5)
+            flour_extra = e1.number_input("مصاريف دقيق إضافية", min_value=0, step=1, format="%d")
+            yeast = e2.number_input("خميرة", min_value=0, step=1, format="%d")
+            salt = e3.number_input("ملح", min_value=0, step=1, format="%d")
+            oil = e4.number_input("زيت/سمن", min_value=0, step=1, format="%d")
+            gas = e5.number_input("غاز", min_value=0, step=1, format="%d")
 
-        # إنتاجية الدقيق
-        prod_avg = int(df["إنتاجية الجوال (رغيف/جوال)"].replace(0, pd.NA).dropna().mean() or 0)
+            e6, e7, e8, e9, e10 = st.columns(5)
+            electricity = e6.number_input("كهرباء", min_value=0, step=1, format="%d")
+            water = e7.number_input("مياه", min_value=0, step=1, format="%d")
+            salaries = e8.number_input("رواتب", min_value=0, step=1, format="%d")
+            maintenance = e9.number_input("صيانة", min_value=0, step=1, format="%d")
+            petty = e10.number_input("نثريات", min_value=0, step=1, format="%d")
 
-        c1, c2, c3, c4, c5, c6 = st.columns(6)
-        c1.metric("إجمالي المبيعات", fmt_i(total_revenue))
-        c2.metric("إجمالي المصروفات", fmt_i(total_exp))
-        c3.metric("صافي الربح", fmt_i(total_profit))
-        c4.metric("📌 رصيد السلفة", fmt_i(current_balance))
-        c5.metric("💰 رصيد الخزنة", fmt_i(cash_bal))
-        c6.metric("🏦 رصيد البنك", fmt_i(bank_bal))
+            e11, e12, e13 = st.columns(3)
+            other_exp = e11.number_input("مصاريف أخرى", min_value=0, step=1, format="%d")
+            ice = e12.number_input("ثلج", min_value=0, step=1, format="%d")
+            bags = e13.number_input("أكياس", min_value=0, step=1, format="%d")
 
-        c7, c8, c9 = st.columns(3)
-        c7.metric("🧱 إجمالي الإيجار", fmt_i(total_rent))
-        c8.metric("🥖 إنتاجية الجوال (متوسط)", fmt_i(prod_avg))
-        c9.metric("إيراد الصامولي", fmt_i(int(df["إيراد الصامولي"].sum())))
+            e14, e15 = st.columns(2)
+            daily_meal = e14.number_input("فطور يومي", min_value=0, step=1, format="%d")
+            exp_pay_source = e15.selectbox("مصدر صرف المصروفات لليوم (اختياري)", ["لا تسجل", "خزنة", "بنك"], index=0)
 
-        # حالة المخبز بناءً على تمويل آخر 14 يوم
-        recent_cutoff = pd.Timestamp(date.today() - timedelta(days=FUND_LOOKBACK_DAYS))
-        recent_fund = int(df.loc[df["dte"] >= recent_cutoff, "owner_injection"].fillna(0).sum())
-        st.metric("⚖️ حالة المخبز", "يغطي نفسه" if (total_profit >= 0 and recent_fund == 0) else "يعتمد على تمويل")
+            st.markdown("**سلفة / رد سلفة / تمويل / تحويلات أخرى (لا تؤثر على الربح)**")
+            w1, w2, w3, w4 = st.columns(4)
+            owner_withdrawal = w1.number_input("سلفة", min_value=0, step=1, format="%d")
+            owner_withdrawal_src = w1.selectbox("مصدر السلفة", ["خزنة", "بنك"], index=0, key="wdsrc")
 
-        st.markdown("### الربح الصافي اليومي")
-        fig = px.line(df, x="dte", y="الربح الصافي لليوم", markers=True)
-        fig.update_layout(xaxis_title="التاريخ", yaxis_title="الربح الصافي")
-        fig.update_traces(hovertemplate="%{y:.0f}")
-        fig.update_yaxes(tickformat="d")
-        st.plotly_chart(fig, use_container_width=True)
+            owner_repayment = w2.number_input("رد سلفة", min_value=0, step=1, format="%d")
+            owner_repayment_src = w2.selectbox("مصدر رد السلفة", ["خزنة", "بنك"], index=0, key="rpsrc")
 
-        st.markdown("### ملخص الإيرادات حسب النوع")
-        sum_df = pd.DataFrame({
-            "البند": ["إيراد الصامولي", "إيراد المدور"],
-            "القيمة": [int(df["إيراد الصامولي"].sum()), int(df["إيراد المدور"].sum())]
-        })
-        bar = px.bar(sum_df, x="البند", y="القيمة")
-        bar.update_traces(hovertemplate="%{y:.0f}")
-        bar.update_yaxes(tickformat="d")
-        st.plotly_chart(bar, use_container_width=True)
+            owner_injection = w3.number_input("تمويل", min_value=0, step=1, format="%d")
+            owner_injection_src = w3.selectbox("مصدر التمويل", ["خزنة", "بنك"], index=1, key="injsrc")
 
-        st.markdown("### السجل التفصيلي")
-        show = df.copy()
-        show.rename(columns={
-            "dte":"التاريخ",
-            "units_samoli":"إنتاج الصامولي (عدد)",
-            "per_thousand_samoli":"الصامولي: عدد الأرغفة لكل 1000",
-            "units_madour":"إنتاج المدور (عدد)",
-            "per_thousand_madour":"المدور: عدد الأرغفة لكل 1000",
-            "flour_bags":"جوالات الدقيق",
-            "flour_bag_price":"سعر جوال الدقيق",
-            "flour_extra":"دقيق إضافي","yeast":"خميرة","salt":"ملح","oil":"زيت/سمن","gas":"غاز",
-            "electricity":"كهرباء","water":"مياه","salaries":"رواتب","maintenance":"صيانة","petty":"نثريات","other_exp":"مصاريف أخرى",
-            "ice":"ثلج","bags":"أكياس","daily_meal":"فطور يومي",
-            "owner_withdrawal":"سلفة","owner_repayment":"رد سلفة","owner_injection":"تمويل","funding":"تحويلات أخرى",
-            "returns":"مرتجع/هالك","discounts":"خصومات/عروض"
-        }, inplace=True)
-        for col in [
-            "إيراد الصامولي","إيراد المدور","إجمالي المبيعات","تكلفة الدقيق","إيجار يومي",
-            "دقيق إضافي","خميرة","ملح","زيت/سمن","غاز","كهرباء","مياه","رواتب","صيانة","نثريات","مصاريف أخرى","ثلج","أكياس","فطور يومي",
-            "الإجمالي اليومي للمصروفات","الربح الصافي لليوم","سلفة","رد سلفة","تمويل","تحويلات أخرى","مرتجع/هالك","خصومات/عروض",
-            "إنتاجية الجوال (رغيف/جوال)"
-        ]:
-            if col in show.columns:
-                show[col] = show[col].fillna(0).astype(int)
-        st.dataframe(show.drop(columns=["id"]) if "id" in show.columns else show, use_container_width=True)
+            funding = w4.number_input("تحويلات أخرى (يسمح بسالب/موجب)", value=0, step=1, format="%d")
+            funding_src = w4.selectbox("مصدر التحويل", ["خزنة", "بنك"], index=1, key="fdsrc")
+
+            st.markdown("**حقول وصفية (اختياري)**")
+            r1, r2 = st.columns(2)
+            returns = r1.number_input("مرتجع/هالك", min_value=0, step=1, format="%d")
+            discounts = r2.number_input("خصومات/عروض", min_value=0, step=1, format="%d")
+
+            subA = st.form_submit_button("✅ حفظ اليوميات")
+            if subA:
+                row = (
+                    dte.isoformat(),
+                    int(units_samoli or 0), int(per_thousand_samoli or 0),
+                    int(units_madour or 0), int(per_thousand_madour or 0),
+                    int(flour_bags or 0), int(flour_bag_price or 0),
+                    int(flour_extra or 0), int(yeast or 0), int(salt or 0), int(oil or 0), int(gas or 0),
+                    int(electricity or 0), int(water or 0), int(salaries or 0), int(maintenance or 0),
+                    int(petty or 0), int(other_exp or 0), int(ice or 0), int(bags or 0), int(daily_meal or 0),
+                    int(owner_withdrawal or 0), int(owner_repayment or 0), int(owner_injection or 0), int(funding or 0),
+                    int(returns or 0), int(discounts or 0),
+                )
+                insert_daily(row)
+
+                total_daily_oper_exp = sum([
+                    int(flour_extra or 0), int(yeast or 0), int(salt or 0), int(oil or 0), int(gas or 0),
+                    int(electricity or 0), int(water or 0), int(salaries or 0), int(maintenance or 0),
+                    int(petty or 0), int(other_exp or 0), int(ice or 0), int(bags or 0), int(daily_meal or 0),
+                ])
+                if exp_pay_source in ("خزنة", "بنك") and total_daily_oper_exp > 0:
+                    add_money_move(dte, "cash" if exp_pay_source == "خزنة" else "bank",
+                                   -total_daily_oper_exp, "مصروفات تشغيل لليوم")
+
+                if int(owner_withdrawal or 0) > 0:
+                    add_money_move(dte, "cash" if owner_withdrawal_src == "خزنة" else "bank",
+                                   -int(owner_withdrawal), "سلفة")
+                if int(owner_repayment or 0) > 0:
+                    add_money_move(dte, "cash" if owner_repayment_src == "خزنة" else "bank",
+                                   +int(owner_repayment), "رد سلفة")
+                if int(owner_injection or 0) > 0:
+                    add_money_move(dte, "cash" if owner_injection_src == "خزنة" else "bank",
+                                   +int(owner_injection), "تمويل")
+                if int(funding or 0) != 0:
+                    add_money_move(dte, "cash" if funding_src == "خزنة" else "bank",
+                                   int(funding), "تحويلات أخرى")
+
+                st.success("تم حفظ اليوميات وحركة النقد المرتبطة.")
+
+    # ============ القسم B: توريد العملاء ============
+    with st.expander("B) توريد العملاء (صامولي/مدور) نقدي/آجل", expanded=False):
+        act = list_clients(active_only=True)
+        if act.empty:
+            st.info("أضف عميلًا نشطًا أولاً من قسم إدارة العملاء.")
+        else:
+            with st.form("form_client_delivery"):
+                ca, cb, cc = st.columns([2, 1, 1])
+                idx = ca.selectbox("اختر العميل", options=act.index, format_func=lambda i: act.loc[i, "name"])
+                d_delivery = cb.date_input("تاريخ التوريد", value=date.today())
+                cash_source_for_cash = cc.selectbox("مصدر التحصيل النقدي", ["خزنة", "بنك"], index=0)
+
+                st.caption("**توريد صامولي**")
+                cs1, cs2, cs3 = st.columns(3)
+                u_s = cs1.number_input("عدد الصامولي", min_value=0, step=10, format="%d")
+                p_s = cs2.number_input("الصامولي: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d")
+                pay_s = cs3.selectbox("طريقة الدفع", ["cash", "credit"], index=0)
+
+                st.caption("**توريد مدور**")
+                cm1, cm2, cm3 = st.columns(3)
+                u_m = cm1.number_input("عدد المدور", min_value=0, step=10, format="%d")
+                p_m = cm2.number_input("المدور: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d")
+                pay_m = cm3.selectbox("طريقة الدفع ", ["cash", "credit"], index=0)
+
+                subB = st.form_submit_button("💾 حفظ توريد العميل")
+                if subB:
+                    cid = int(act.loc[idx, "id"])
+                    if u_s > 0:
+                        add_client_delivery(d_delivery, cid, "samoli", u_s, p_s, pay_s,
+                                            "cash" if cash_source_for_cash == "خزنة" else "bank")
+                    if u_m > 0:
+                        add_client_delivery(d_delivery, cid, "madour", u_m, p_m, pay_m,
+                                            "cash" if cash_source_for_cash == "خزنة" else "bank")
+                    st.success("تم حفظ توريد العميل.")
+
+    # ============ القسم C: سداد عملاء (للآجل) ============
+    with st.expander("C) سداد عملاء (للآجل)", expanded=False):
+        act2 = list_clients(active_only=True)
+        if act2.empty:
+            st.info("لا يوجد عملاء نشطون.")
+        else:
+            with st.form("form_client_payment"):
+                p1, p2, p3, p4 = st.columns(4)
+                idx2 = p1.selectbox("اختر العميل", options=act2.index, format_func=lambda i: act2.loc[i, "name"])
+                p_date = p2.date_input("تاريخ السداد", value=date.today())
+                p_amount = p3.number_input("مبلغ السداد", min_value=0, step=1, format="%d")
+                p_src = p4.selectbox("المصدر", ["خزنة", "بنك"], index=0)
+                note = st.text_input("ملاحظة (اختياري)", value="سداد عميل")
+                subC = st.form_submit_button("💾 حفظ السداد")
+                if subC and p_amount > 0:
+                    add_client_payment(p_date, int(act2.loc[idx2, "id"]), p_amount,
+                                       "cash" if p_src == "خزنة" else "bank", note)
+                    st.success("تم حفظ سداد العميل.")
+
+    # ============ القسم D: حركة نقد عامة ============
+    with st.expander("D) حركة نقد عامة (خزنة/بنك)", expanded=False):
+        with st.form("form_money_move"):
+            k1, k2, k3, k4 = st.columns(4)
+            mv_date = k1.date_input("التاريخ", value=date.today())
+            mv_source = k2.selectbox("المصدر", ["خزنة", "بنك"], index=0)
+            mv_amount = k3.number_input("المبلغ (+داخل / -خارج)", value=0, step=1, format="%d")
+            mv_reason = k4.text_input("السبب", value="حركة يدوية")
+            subD = st.form_submit_button("➕ إضافة حركة نقد")
+            if subD and int(mv_amount or 0) != 0:
+                add_money_move(mv_date, "cash" if mv_source == "خزنة" else "bank", int(mv_amount), mv_reason or "حركة")
+                st.success("تمت إضافة الحركة.")
+
+    # ============ القسم E: إعداد الإيجار الشهري ============
+    with st.expander("E) إعداد الإيجار الشهري (يُوزَّع يوميًا تلقائيًا)", expanded=False):
+        with st.form("form_rent"):
+            y, m, mr = st.columns(3)
+            yy = y.number_input("السنة", min_value=2020, max_value=2100, value=date.today().year, step=1, format="%d")
+            mm = m.number_input("الشهر", min_value=1, max_value=12, value=date.today().month, step=1, format="%d")
+            monthly_rent = mr.number_input("الإيجار الشهري", min_value=0, step=1, format="%d")
+            subE = st.form_submit_button("💾 حفظ الإيجار")
+            if subE:
+                set_monthly_rent(int(yy), int(mm), int(monthly_rent))
+                st.success("تم حفظ الإيجار الشهري.")
 # ====================== الجزء 4/6 — إدارة البيانات ======================
 with TAB_MANAGE:
     st.subheader("إدارة البيانات")
