@@ -451,8 +451,10 @@ with TAB_INPUT:
     if st.button("✅ حفظ السجل"):
         row = (
             dte.isoformat(),
-            units_samoli, per_thousand_samoli,
-            units_madour, per_thousand_madour,
+            units_samoli = s1.number_input("إنتاج الصامولي (عدد)", min_value=0, step=10, format="%d", key="input_units_samoli")
+            per_thousand_samoli = s2.number_input("الصامولي: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d", key="input_pt_samoli")
+            units_madour = s3.number_input("إنتاج المدور (عدد)", min_value=0, step=10, format="%d", key="input_units_madour")
+            per_thousand_madour = s4.number_input("المدور: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d", key="input_pt_madour")
             flour_bags, flour_bag_price,
             flour_extra, yeast, salt, oil, gas, electricity, water,
             salaries, maintenance, petty, other_exp, ice, bags, daily_meal,
@@ -654,9 +656,9 @@ with TAB_CLIENTS:
 
         st.caption("**توريد صامولي**")
         cs1, cs2, cs3 = st.columns(3)
-        u_s = cs1.number_input("عدد الصامولي", min_value=0, step=10, format="%d")
-        p_s = cs2.number_input("الصامولي: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d")
-        pay_s = cs3.selectbox("طريقة الدفع", ["cash", "credit"], index=0)
+        u_s = cs1.number_input("عدد الصامولي", min_value=0, step=10, format="%d", key="client_units_samoli")
+        p_s = cs2.number_input("الصامولي: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d", key="client_pt_samoli")
+        pay_s = cs3.selectbox("طريقة الدفع", ["cash", "credit"], index=0, key="client_pay_method_s")
         if st.button("💾 حفظ توريد الصامولي"):
             add_client_delivery(d_delivery, int(act.loc[idx, "id"]), "samoli", u_s, p_s, pay_s, "cash" if cash_source_for_cash == "خزنة" else "bank")
             st.success("تم حفظ توريد الصامولي.")
