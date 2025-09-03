@@ -58,97 +58,109 @@ def init_db():
 
     # ========== الجداول الأساسية ==========
     # اليوميات
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS daily (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        dte TEXT,
-        units_samoli INTEGER,
-        per_thousand_samoli INTEGER,
-        units_madour INTEGER,
-        per_thousand_madour INTEGER,
-        flour_bags INTEGER,
-        flour_bag_price INTEGER,
-        flour_extra INTEGER,
-        yeast INTEGER,
-        salt INTEGER,
-        oil INTEGER,
-        gas INTEGER,
-        electricity INTEGER,
-        water INTEGER,
-        salaries INTEGER,
-        maintenance INTEGER,
-        petty INTEGER,
-        other_exp INTEGER,
-        ice INTEGER,
-        bags INTEGER,
-        daily_meal INTEGER,
-        owner_withdrawal INTEGER,
-        owner_repayment INTEGER,
-        owner_injection INTEGER,
-        funding INTEGER,
-        returns INTEGER,
-        discounts INTEGER
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS daily (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dte TEXT,
+            units_samoli INTEGER,
+            per_thousand_samoli INTEGER,
+            units_madour INTEGER,
+            per_thousand_madour INTEGER,
+            flour_bags INTEGER,
+            flour_bag_price INTEGER,
+            flour_extra INTEGER,
+            yeast INTEGER,
+            salt INTEGER,
+            oil INTEGER,
+            gas INTEGER,
+            electricity INTEGER,
+            water INTEGER,
+            salaries INTEGER,
+            maintenance INTEGER,
+            petty INTEGER,
+            other_exp INTEGER,
+            ice INTEGER,
+            bags INTEGER,
+            daily_meal INTEGER,
+            owner_withdrawal INTEGER,
+            owner_repayment INTEGER,
+            owner_injection INTEGER,
+            funding INTEGER,
+            returns INTEGER,
+            discounts INTEGER
+        )
+        """
     )
-    """)
 
     # العملاء
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS clients (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT UNIQUE,
-        active INTEGER DEFAULT 1
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS clients (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE,
+            active INTEGER DEFAULT 1
+        )
+        """
     )
-    """)
 
     # توريدات العملاء
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS client_deliveries (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        dte TEXT,
-        client_id INTEGER,
-        bread_type TEXT,
-        units INTEGER,
-        per_thousand INTEGER,
-        revenue INTEGER,
-        payment_method TEXT,
-        cash_source TEXT,
-        FOREIGN KEY(client_id) REFERENCES clients(id)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS client_deliveries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dte TEXT,
+            client_id INTEGER,
+            bread_type TEXT,
+            units INTEGER,
+            per_thousand INTEGER,
+            revenue INTEGER,
+            payment_method TEXT,
+            cash_source TEXT,
+            FOREIGN KEY(client_id) REFERENCES clients(id)
+        )
+        """
     )
-    """)
 
     # مدفوعات العملاء
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS client_payments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        dte TEXT,
-        client_id INTEGER,
-        amount INTEGER,
-        source TEXT,
-        note TEXT,
-        FOREIGN KEY(client_id) REFERENCES clients(id)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS client_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dte TEXT,
+            client_id INTEGER,
+            amount INTEGER,
+            source TEXT,
+            note TEXT,
+            FOREIGN KEY(client_id) REFERENCES clients(id)
+        )
+        """
     )
-    """)
 
     # الإيجار الشهري
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS rent_settings (
-        year INTEGER,
-        month INTEGER,
-        monthly_rent INTEGER,
-        PRIMARY KEY (year, month)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS rent_settings (
+            year INTEGER,
+            month INTEGER,
+            monthly_rent INTEGER,
+            PRIMARY KEY (year, month)
+        )
+        """
     )
-    """)
 
     # حركة النقد
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS money_moves (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        dte TEXT,
-        source TEXT,
-        amount INTEGER,
-        reason TEXT
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS money_moves (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dte TEXT,
+            source TEXT,
+            amount INTEGER,
+            reason TEXT
+        )
+        """
     )
-    """)
 
     # ترقيات أعمدة ناقصة في daily
     cur.execute("PRAGMA table_info(daily)")
@@ -163,17 +175,21 @@ def init_db():
         ("discounts", "ALTER TABLE daily ADD COLUMN discounts INTEGER"),
     ]:
         if col not in cols:
-            try: cur.execute(sql)
-            except Exception: pass
+            try:
+                cur.execute(sql)
+            except Exception:
+                pass
 
     # ========== الفروع وقابلية التوسع ==========
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS branches (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT UNIQUE NOT NULL,
-        active INTEGER DEFAULT 1
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS branches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            active INTEGER DEFAULT 1
+        )
+        """
     )
-    """)
     # إنشاء فرع افتراضي إن لم يوجد
     cur.execute("INSERT OR IGNORE INTO branches(id, name, active) VALUES (1,'الفرع الرئيسي',1)")
 
@@ -186,7 +202,10 @@ def init_db():
             except Exception:
                 pass
         # توحيد القيم الفارغة إلى 1
-        cur.execute(f"UPDATE {table} SET branch_id=1 WHERE branch_id IS NULL")
+        try:
+            cur.execute(f"UPDATE {table} SET branch_id=1 WHERE branch_id IS NULL")
+        except Exception:
+            pass
 
     for t in ["daily","money_moves","client_deliveries","client_payments","clients"]:
         ensure_branch(t)
@@ -206,156 +225,176 @@ def init_db():
 
     # ========== قيود الجودة عبر Triggers (SQLite) ==========
     # bread_type ∈ {samoli, madour}
-    cur.execute("""
-    CREATE TRIGGER IF NOT EXISTS trg_cd_bread_type_ins
-    BEFORE INSERT ON client_deliveries
-    BEGIN
-        SELECT CASE
-            WHEN NEW.bread_type NOT IN ('samoli','madour') THEN
-                RAISE(ABORT, 'bread_type must be samoli or madour')
+    cur.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_cd_bread_type_ins
+        BEFORE INSERT ON client_deliveries
+        BEGIN
+            SELECT CASE
+                WHEN NEW.bread_type NOT IN ('samoli','madour') THEN
+                    RAISE(ABORT, 'bread_type must be samoli or madour')
+            END;
         END;
-    END;
-    """)
-    cur.execute("""
-    CREATE TRIGGER IF NOT EXISTS trg_cd_bread_type_upd
-    BEFORE UPDATE ON client_deliveries
-    BEGIN
-        SELECT CASE
-            WHEN NEW.bread_type NOT IN ('samoli','madour') THEN
-                RAISE(ABORT, 'bread_type must be samoli or madour')
+        """
+    )
+    cur.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_cd_bread_type_upd
+        BEFORE UPDATE ON client_deliveries
+        BEGIN
+            SELECT CASE
+                WHEN NEW.bread_type NOT IN ('samoli','madour') THEN
+                    RAISE(ABORT, 'bread_type must be samoli or madour')
+            END;
         END;
-    END;
-    """)
+        """
+    )
 
     # payment_method ∈ {cash, credit}
-    cur.execute("""
-    CREATE TRIGGER IF NOT EXISTS trg_cd_paymethod_ins
-    BEFORE INSERT ON client_deliveries
-    BEGIN
-        SELECT CASE
-            WHEN NEW.payment_method NOT IN ('cash','credit') THEN
-                RAISE(ABORT, 'payment_method must be cash or credit')
+    cur.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_cd_paymethod_ins
+        BEFORE INSERT ON client_deliveries
+        BEGIN
+            SELECT CASE
+                WHEN NEW.payment_method NOT IN ('cash','credit') THEN
+                    RAISE(ABORT, 'payment_method must be cash or credit')
+            END;
         END;
-    END;
-    """)
-    cur.execute("""
-    CREATE TRIGGER IF NOT EXISTS trg_cd_paymethod_upd
-    BEFORE UPDATE ON client_deliveries
-    BEGIN
-        SELECT CASE
-            WHEN NEW.payment_method NOT IN ('cash','credit') THEN
-                RAISE(ABORT, 'payment_method must be cash or credit')
+        """
+    )
+    cur.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_cd_paymethod_upd
+        BEFORE UPDATE ON client_deliveries
+        BEGIN
+            SELECT CASE
+                WHEN NEW.payment_method NOT IN ('cash','credit') THEN
+                    RAISE(ABORT, 'payment_method must be cash or credit')
+            END;
         END;
-    END;
-    """)
+        """
+    )
 
     # source ∈ {cash, bank} في money_moves و client_payments
-    cur.execute("""
-    CREATE TRIGGER IF NOT EXISTS trg_mm_source_ins
-    BEFORE INSERT ON money_moves
-    BEGIN
-        SELECT CASE
-            WHEN NEW.source NOT IN ('cash','bank') THEN
-                RAISE(ABORT, 'source must be cash or bank')
+    cur.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_mm_source_ins
+        BEFORE INSERT ON money_moves
+        BEGIN
+            SELECT CASE
+                WHEN NEW.source NOT IN ('cash','bank') THEN
+                    RAISE(ABORT, 'source must be cash or bank')
+            END;
         END;
-    END;
-    """)
-    cur.execute("""
-    CREATE TRIGGER IF NOT EXISTS trg_mm_source_upd
-    BEFORE UPDATE ON money_moves
-    BEGIN
-        SELECT CASE
-            WHEN NEW.source NOT IN ('cash','bank') THEN
-                RAISE(ABORT, 'source must be cash or bank')
+        """
+    )
+    cur.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_mm_source_upd
+        BEFORE UPDATE ON money_moves
+        BEGIN
+            SELECT CASE
+                WHEN NEW.source NOT IN ('cash','bank') THEN
+                    RAISE(ABORT, 'source must be cash or bank')
+            END;
         END;
-    END;
-    """)
-    cur.execute("""
-    CREATE TRIGGER IF NOT EXISTS trg_cp_source_ins
-    BEFORE INSERT ON client_payments
-    BEGIN
-        SELECT CASE
-            WHEN NEW.source NOT IN ('cash','bank') THEN
-                RAISE(ABORT, 'source must be cash or bank')
+        """
+    )
+    cur.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_cp_source_ins
+        BEFORE INSERT ON client_payments
+        BEGIN
+            SELECT CASE
+                WHEN NEW.source NOT IN ('cash','bank') THEN
+                    RAISE(ABORT, 'source must be cash or bank')
+            END;
         END;
-    END;
-    """)
-    cur.execute("""
-    CREATE TRIGGER IF NOT EXISTS trg_cp_source_upd
-    BEFORE UPDATE ON client_payments
-    BEGIN
-        SELECT CASE
-            WHEN NEW.source NOT IN ('cash','bank') THEN
-                RAISE(ABORT, 'source must be cash or bank')
+        """
+    )
+    cur.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_cp_source_upd
+        BEFORE UPDATE ON client_payments
+        BEGIN
+            SELECT CASE
+                WHEN NEW.source NOT IN ('cash','bank') THEN
+                    RAISE(ABORT, 'source must be cash or bank')
+            END;
         END;
-    END;
-    """)
+        """
+    )
 
     # قيم غير سالبة (حيث يلزم) في daily — funding يسمح بالسالب/الموجب
-    cur.execute("""
-    CREATE TRIGGER IF NOT EXISTS trg_daily_nonneg_ins
-    BEFORE INSERT ON daily
-    BEGIN
-        SELECT CASE
-            WHEN IFNULL(NEW.units_samoli,0) < 0 OR
-                 IFNULL(NEW.units_madour,0) < 0 OR
-                 IFNULL(NEW.flour_bags,0) < 0 OR
-                 IFNULL(NEW.flour_bag_price,0) < 0 OR
-                 IFNULL(NEW.flour_extra,0) < 0 OR
-                 IFNULL(NEW.yeast,0) < 0 OR
-                 IFNULL(NEW.salt,0) < 0 OR
-                 IFNULL(NEW.oil,0) < 0 OR
-                 IFNULL(NEW.gas,0) < 0 OR
-                 IFNULL(NEW.electricity,0) < 0 OR
-                 IFNULL(NEW.water,0) < 0 OR
-                 IFNULL(NEW.salaries,0) < 0 OR
-                 IFNULL(NEW.maintenance,0) < 0 OR
-                 IFNULL(NEW.petty,0) < 0 OR
-                 IFNULL(NEW.other_exp,0) < 0 OR
-                 IFNULL(NEW.ice,0) < 0 OR
-                 IFNULL(NEW.bags,0) < 0 OR
-                 IFNULL(NEW.daily_meal,0) < 0 OR
-                 IFNULL(NEW.owner_withdrawal,0) < 0 OR
-                 IFNULL(NEW.owner_repayment,0) < 0 OR
-                 IFNULL(NEW.owner_injection,0) < 0 OR
-                 IFNULL(NEW.returns,0) < 0 OR
-                 IFNULL(NEW.discounts,0) < 0
-            THEN RAISE(ABORT, 'negative values not allowed in daily fields')
+    cur.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_daily_nonneg_ins
+        BEFORE INSERT ON daily
+        BEGIN
+            SELECT CASE
+                WHEN IFNULL(NEW.units_samoli,0) < 0 OR
+                     IFNULL(NEW.units_madour,0) < 0 OR
+                     IFNULL(NEW.flour_bags,0) < 0 OR
+                     IFNULL(NEW.flour_bag_price,0) < 0 OR
+                     IFNULL(NEW.flour_extra,0) < 0 OR
+                     IFNULL(NEW.yeast,0) < 0 OR
+                     IFNULL(NEW.salt,0) < 0 OR
+                     IFNULL(NEW.oil,0) < 0 OR
+                     IFNULL(NEW.gas,0) < 0 OR
+                     IFNULL(NEW.electricity,0) < 0 OR
+                     IFNULL(NEW.water,0) < 0 OR
+                     IFNULL(NEW.salaries,0) < 0 OR
+                     IFNULL(NEW.maintenance,0) < 0 OR
+                     IFNULL(NEW.petty,0) < 0 OR
+                     IFNULL(NEW.other_exp,0) < 0 OR
+                     IFNULL(NEW.ice,0) < 0 OR
+                     IFNULL(NEW.bags,0) < 0 OR
+                     IFNULL(NEW.daily_meal,0) < 0 OR
+                     IFNULL(NEW.owner_withdrawal,0) < 0 OR
+                     IFNULL(NEW.owner_repayment,0) < 0 OR
+                     IFNULL(NEW.owner_injection,0) < 0 OR
+                     IFNULL(NEW.returns,0) < 0 OR
+                     IFNULL(NEW.discounts,0) < 0
+                THEN RAISE(ABORT, 'negative values not allowed in daily fields')
+            END;
         END;
-    END;
-    """)
-    cur.execute("""
-    CREATE TRIGGER IF NOT EXISTS trg_daily_nonneg_upd
-    BEFORE UPDATE ON daily
-    BEGIN
-        SELECT CASE
-            WHEN IFNULL(NEW.units_samoli,0) < 0 OR
-                 IFNULL(NEW.units_madour,0) < 0 OR
-                 IFNULL(NEW.flour_bags,0) < 0 OR
-                 IFNULL(NEW.flour_bag_price,0) < 0 OR
-                 IFNULL(NEW.flour_extra,0) < 0 OR
-                 IFNULL(NEW.yeast,0) < 0 OR
-                 IFNULL(NEW.salt,0) < 0 OR
-                 IFNULL(NEW.oil,0) < 0 OR
-                 IFNULL(NEW.gas,0) < 0 OR
-                 IFNULL(NEW.electricity,0) < 0 OR
-                 IFNULL(NEW.water,0) < 0 OR
-                 IFNULL(NEW.salaries,0) < 0 OR
-                 IFNULL(NEW.maintenance,0) < 0 OR
-                 IFNULL(NEW.petty,0) < 0 OR
-                 IFNULL(NEW.other_exp,0) < 0 OR
-                 IFNULL(NEW.ice,0) < 0 OR
-                 IFNULL(NEW.bags,0) < 0 OR
-                 IFNULL(NEW.daily_meal,0) < 0 OR
-                 IFNULL(NEW.owner_withdrawal,0) < 0 OR
-                 IFNULL(NEW.owner_repayment,0) < 0 OR
-                 IFNULL(NEW.owner_injection,0) < 0 OR
-                 IFNULL(NEW.returns,0) < 0 OR
-                 IFNULL(NEW.discounts,0) < 0
-            THEN RAISE(ABORT, 'negative values not allowed in daily fields')
+        """
+    )
+    cur.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_daily_nonneg_upd
+        BEFORE UPDATE ON daily
+        BEGIN
+            SELECT CASE
+                WHEN IFNULL(NEW.units_samoli,0) < 0 OR
+                     IFNULL(NEW.units_madour,0) < 0 OR
+                     IFNULL(NEW.flour_bags,0) < 0 OR
+                     IFNULL(NEW.flour_bag_price,0) < 0 OR
+                     IFNULL(NEW.flour_extra,0) < 0 OR
+                     IFNULL(NEW.yeast,0) < 0 OR
+                     IFNULL(NEW.salt,0) < 0 OR
+                     IFNULL(NEW.oil,0) < 0 OR
+                     IFNULL(NEW.gas,0) < 0 OR
+                     IFNULL(NEW.electricity,0) < 0 OR
+                     IFNULL(NEW.water,0) < 0 OR
+                     IFNULL(NEW.salaries,0) < 0 OR
+                     IFNULL(NEW.maintenance,0) < 0 OR
+                     IFNULL(NEW.petty,0) < 0 OR
+                     IFNULL(NEW.other_exp,0) < 0 OR
+                     IFNULL(NEW.ice,0) < 0 OR
+                     IFNULL(NEW.bags,0) < 0 OR
+                     IFNULL(NEW.daily_meal,0) < 0 OR
+                     IFNULL(NEW.owner_withdrawal,0) < 0 OR
+                     IFNULL(NEW.owner_repayment,0) < 0 OR
+                     IFNULL(NEW.owner_injection,0) < 0 OR
+                     IFNULL(NEW.returns,0) < 0 OR
+                     IFNULL(NEW.discounts,0) < 0
+                THEN RAISE(ABORT, 'negative values not allowed in daily fields')
+            END;
         END;
-    END;
-    """)
+        """
+    )
 
     conn.commit()
     conn.close()
@@ -467,7 +506,7 @@ def fetch_daily_df() -> pd.DataFrame:
     # صافي الربح
     df["الربح الصافي لليوم"] = (df["إجمالي المبيعات"].fillna(0) - df["الإجمالي اليومي للمصروفات"].fillna(0)).astype(int)
 
-    # إنتاجية جوال الدقيق = إجمالي الأرغفة / الجوالات
+    # إنتاجية الجوال = إجمالي الأرغفة / الجوالات
     total_units = (df["units_samoli"].fillna(0).astype(int) + df["units_madour"].fillna(0).astype(int))
     df["إنتاجية الجوال (رغيف/جوال)"] = [int(u // b) if int(b or 0) > 0 else 0 for u, b in zip(total_units, df["flour_bags"].fillna(0))]
 
@@ -505,7 +544,7 @@ def add_client_delivery(dte: date, client_id: int, bread_type: str, units: int, 
 
     # لو نقدي: نسجل حركة نقد
     if payment_method == "cash":
-        add_money_move(dte, cash_source, rev, f"تحصيل توريد عميل ({bread_type})")
+        add_money_move(dte, "cash" if cash_source == "cash" or cash_source == "خزنة" else "bank", rev, f"تحصيل توريد عميل ({bread_type})")
 
 # مدفوعات العملاء (لسداد الآجل)
 def add_client_payment(dte: date, client_id: int, amount: int, source: str, note: str = "سداد عميل"):
@@ -537,6 +576,7 @@ def fetch_ar_df() -> pd.DataFrame:
     base["مدفوع"] = base["client_id"].map(paid).fillna(0).astype(int)
     base["الرصيد"] = (base["إيراد آجل"] - base["مدفوع"]).astype(int)
     return base.sort_values("الرصيد", ascending=False)
+
 # ====================== التهيئة وواجهة المستخدم ======================
 st.set_page_config(page_title="متابعة المخبز — شامل (غير دائم)", layout="wide")
 st.markdown(
@@ -549,13 +589,13 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# العنوان (ده المقصود بـ st.title تبع الواجهة)
+# العنوان
 st.title("📊 نظام متابعة المخبز — شامل (تجريبي غير دائم)")
 
-# مهم جدًا: تهيئة القاعدة قبل أي تبويبات/نوافذ
+# تهيئة القاعدة
 init_db()
 
-# تبويبة إدخال واحدة + باقي التبويبات
+# التبويبات
 TAB_UNIFIED, TAB_DASH, TAB_MANAGE, TAB_CLIENTS, TAB_REPORT = st.tabs([
     "🧾 الإدخال الموحّد",
     "📈 لوحة المتابعة",
@@ -563,9 +603,11 @@ TAB_UNIFIED, TAB_DASH, TAB_MANAGE, TAB_CLIENTS, TAB_REPORT = st.tabs([
     "📦 العملاء والتوريد",
     "📑 التقارير",
 ])
+
+# ====================== الإدخال الموحّد ======================
 with TAB_UNIFIED:
     st.subheader("مركز الإدخال اليومي — موحّد")
-    ...
+
     # ============ القسم A: اليوميات ============
     with st.expander("A) اليوميات: إنتاج/تسعير + مصروفات + تمويلات", expanded=True):
         with st.form("form_daily", clear_on_submit=False):
@@ -741,98 +783,26 @@ with TAB_UNIFIED:
             if subE:
                 set_monthly_rent(int(yy), int(mm), int(monthly_rent))
                 st.success("تم حفظ الإيجار الشهري.")
-# ====================== الجزء 2/6 — تبويب الإدخال اليومي (بـ st.form) ======================
-    "🧾 الإدخال الموحّد",
-    "📈 لوحة المتابعة",                    add_money_move(dte, "cash" if owner_repayment_src == "خزنة" else "bank",
-                                   +int(owner_repayment), "رد سلفة")
-            if int(owner_injection or 0) > 0:
-                    add_money_move(dte, "cash" if owner_injection_src == "خزنة" else "bank",
-                                   +int(owner_injection), "تمويل")
-            if int(funding or 0) != 0:
-                    add_money_move(dte, "cash" if funding_src == "خزنة" else "bank",
-                                   int(funding), "تحويلات أخرى")
 
-            st.success("تم حفظ اليوميات وحركة النقد المرتبطة.")
+# ====================== لوحة المتابعة ======================
+with TAB_DASH:
+    st.subheader("📈 لوحة المتابعة")
+    df_dash = fetch_daily_df()
+    if df_dash.empty:
+        st.info("لا توجد بيانات بعد.")
+    else:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("إجمالي المبيعات", fmt_i(df_dash["إجمالي المبيعات"].sum()))
+        c2.metric("إجمالي المصروفات", fmt_i(df_dash["الإجمالي اليومي للمصروفات"].sum()))
+        c3.metric("صافي الربح", fmt_i(df_dash["الربح الصافي لليوم"].sum()))
 
-    # ============ القسم B: توريد العملاء ============
-    with st.expander("B) توريد العملاء (صامولي/مدور) نقدي/آجل", expanded=False):
-        act = list_clients(active_only=True)
-        if act.empty:
-            st.info("أضف عميلًا نشطًا أولاً من قسم إدارة العملاء.")
-        else:
-            with st.form("form_client_delivery"):
-                ca, cb, cc = st.columns([2, 1, 1])
-                idx = ca.selectbox("اختر العميل", options=act.index, format_func=lambda i: act.loc[i, "name"])
-                d_delivery = cb.date_input("تاريخ التوريد", value=date.today())
-                cash_source_for_cash = cc.selectbox("مصدر التحصيل النقدي", ["خزنة", "بنك"], index=0)
+        fig = px.line(df_dash, x="dte", y="الربح الصافي لليوم", markers=True, title="اتجاه الربح الصافي")
+        fig.update_layout(xaxis_title="التاريخ", yaxis_title="الربح")
+        fig.update_traces(hovertemplate="%{y:.0f}")
+        fig.update_yaxes(tickformat="d")
+        st.plotly_chart(fig, use_container_width=True)
 
-                st.caption("**توريد صامولي**")
-                cs1, cs2, cs3 = st.columns(3)
-                u_s = cs1.number_input("عدد الصامولي", min_value=0, step=10, format="%d")
-                p_s = cs2.number_input("الصامولي: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d")
-                pay_s = cs3.selectbox("طريقة الدفع", ["cash", "credit"], index=0)
-
-                st.caption("**توريد مدور**")
-                cm1, cm2, cm3 = st.columns(3)
-                u_m = cm1.number_input("عدد المدور", min_value=0, step=10, format="%d")
-                p_m = cm2.number_input("المدور: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d")
-                pay_m = cm3.selectbox("طريقة الدفع ", ["cash", "credit"], index=0)
-
-                subB = st.form_submit_button("💾 حفظ توريد العميل")
-                if subB:
-                    cid = int(act.loc[idx, "id"])
-                    if u_s > 0:
-                        add_client_delivery(d_delivery, cid, "samoli", u_s, p_s, pay_s,
-                                            "cash" if cash_source_for_cash == "خزنة" else "bank")
-                    if u_m > 0:
-                        add_client_delivery(d_delivery, cid, "madour", u_m, p_m, pay_m,
-                                            "cash" if cash_source_for_cash == "خزنة" else "bank")
-                    st.success("تم حفظ توريد العميل.")
-
-    # ============ القسم C: سداد عملاء (للآجل) ============
-    with st.expander("C) سداد عملاء (للآجل)", expanded=False):
-        act2 = list_clients(active_only=True)
-        if act2.empty:
-            st.info("لا يوجد عملاء نشطون.")
-        else:
-            with st.form("form_client_payment"):
-                p1, p2, p3, p4 = st.columns(4)
-                idx2 = p1.selectbox("اختر العميل", options=act2.index, format_func=lambda i: act2.loc[i, "name"])
-                p_date = p2.date_input("تاريخ السداد", value=date.today())
-                p_amount = p3.number_input("مبلغ السداد", min_value=0, step=1, format="%d")
-                p_src = p4.selectbox("المصدر", ["خزنة", "بنك"], index=0)
-                note = st.text_input("ملاحظة (اختياري)", value="سداد عميل")
-                subC = st.form_submit_button("💾 حفظ السداد")
-                if subC and p_amount > 0:
-                    add_client_payment(p_date, int(act2.loc[idx2, "id"]), p_amount,
-                                       "cash" if p_src == "خزنة" else "bank", note)
-                    st.success("تم حفظ سداد العميل.")
-
-    # ============ القسم D: حركة نقد عامة ============
-    with st.expander("D) حركة نقد عامة (خزنة/بنك)", expanded=False):
-        with st.form("form_money_move"):
-            k1, k2, k3, k4 = st.columns(4)
-            mv_date = k1.date_input("التاريخ", value=date.today())
-            mv_source = k2.selectbox("المصدر", ["خزنة", "بنك"], index=0)
-            mv_amount = k3.number_input("المبلغ (+داخل / -خارج)", value=0, step=1, format="%d")
-            mv_reason = k4.text_input("السبب", value="حركة يدوية")
-            subD = st.form_submit_button("➕ إضافة حركة نقد")
-            if subD and int(mv_amount or 0) != 0:
-                add_money_move(mv_date, "cash" if mv_source == "خزنة" else "bank", int(mv_amount), mv_reason or "حركة")
-                st.success("تمت إضافة الحركة.")
-
-    # ============ القسم E: إعداد الإيجار الشهري ============
-    with st.expander("E) إعداد الإيجار الشهري (يُوزَّع يوميًا تلقائيًا)", expanded=False):
-        with st.form("form_rent"):
-            y, m, mr = st.columns(3)
-            yy = y.number_input("السنة", min_value=2020, max_value=2100, value=date.today().year, step=1, format="%d")
-            mm = m.number_input("الشهر", min_value=1, max_value=12, value=date.today().month, step=1, format="%d")
-            monthly_rent = mr.number_input("الإيجار الشهري", min_value=0, step=1, format="%d")
-            subE = st.form_submit_button("💾 حفظ الإيجار")
-            if subE:
-                set_monthly_rent(int(yy), int(mm), int(monthly_rent))
-                st.success("تم حفظ الإيجار الشهري.")
-# ====================== الجزء 4/6 — إدارة البيانات ======================
+# ====================== إدارة البيانات ======================
 with TAB_MANAGE:
     st.subheader("إدارة البيانات")
     df = fetch_daily_df()
@@ -851,33 +821,34 @@ with TAB_MANAGE:
             conn.commit(); conn.close()
             st.success("تم الحذف.")
 
-    st.markdown("---")
-    st.markdown("#### إعداد الإيجار الشهري (يُوزَّع يوميًا)")
-    y, m, mr = st.columns(3)
-    yy = y.number_input("السنة", min_value=2020, max_value=2100, value=date.today().year, step=1, format="%d")
-    mm = m.number_input("الشهر", min_value=1, max_value=12, value=date.today().month, step=1, format="%d")
-    monthly_rent = mr.number_input("الإيجار الشهري", min_value=0, step=1, format="%d")
-    if st.button("💾 حفظ الإيجار"):
-        set_monthly_rent(int(yy), int(mm), int(monthly_rent))
-        st.success("تم حفظ الإيجار الشهري لهذا الشهر.")
+        st.markdown("---")
+        st.markdown("#### إعداد الإيجار الشهري (يُوزَّع يوميًا)")
+        y, m, mr = st.columns(3)
+        yy = y.number_input("السنة", min_value=2020, max_value=2100, value=date.today().year, step=1, format="%d", key="manage_rent_y")
+        mm = m.number_input("الشهر", min_value=1, max_value=12, value=date.today().month, step=1, format="%d", key="manage_rent_m")
+        monthly_rent = mr.number_input("الإيجار الشهري", min_value=0, step=1, format="%d", key="manage_rent_amt")
+        if st.button("💾 حفظ الإيجار"):
+            set_monthly_rent(int(yy), int(mm), int(monthly_rent))
+            st.success("تم حفظ الإيجار الشهري لهذا الشهر.")
 
-    st.markdown("---")
-    st.markdown("#### حركة نقد مباشرة (عام)")
-    k1, k2, k3, k4 = st.columns(4)
-    mv_date = k1.date_input("التاريخ", value=date.today(), key="manage_mv_date")
-    mv_source = k2.selectbox("المصدر", ["خزنة", "بنك"], index=0, key="manage_mv_source")
-    mv_amount = k3.number_input("المبلغ (+داخل / -خارج)", value=0, step=1, format="%d")
-    mv_reason = k4.text_input("السبب", value="حركة يدوية", key="manage_mv_reason")
-    if st.button("➕ إضافة حركة نقد"):
-        add_money_move(mv_date, "cash" if mv_source == "خزنة" else "bank", int(mv_amount), mv_reason or "حركة")
-        st.success("تمت إضافة الحركة.")
+        st.markdown("---")
+        st.markdown("#### حركة نقد مباشرة (عام)")
+        k1, k2, k3, k4 = st.columns(4)
+        mv_date = k1.date_input("التاريخ", value=date.today(), key="manage_mv_date")
+        mv_source = k2.selectbox("المصدر", ["خزنة", "بنك"], index=0, key="manage_mv_source")
+        mv_amount = k3.number_input("المبلغ (+داخل / -خارج)", value=0, step=1, format="%d")
+        mv_reason = k4.text_input("السبب", value="حركة يدوية", key="manage_mv_reason")
+        if st.button("➕ إضافة حركة نقد"):
+            add_money_move(mv_date, "cash" if mv_source == "خزنة" else "bank", int(mv_amount), mv_reason or "حركة")
+            st.success("تمت إضافة الحركة.")
 
-    # عرض الأرصدة
-    bals = money_balances()
-    c1, c2 = st.columns(2)
-    c1.metric("💰 رصيد الخزنة", fmt_i(bals.get("cash", 0)))
-    c2.metric("🏦 رصيد البنك", fmt_i(bals.get("bank", 0)))
-# ====================== الجزء 5/6 — العملاء والتوريد + الذمم ======================
+        # عرض الأرصدة
+        bals = money_balances()
+        c1, c2 = st.columns(2)
+        c1.metric("💰 رصيد الخزنة", fmt_i(bals.get("cash", 0)))
+        c2.metric("🏦 رصيد البنك", fmt_i(bals.get("bank", 0)))
+
+# ====================== العملاء والتوريد + الذمم ======================
 with TAB_CLIENTS:
     st.subheader("📦 إدارة العملاء والتوريد")
 
@@ -1009,7 +980,8 @@ with TAB_CLIENTS:
     ar = fetch_ar_df()
     st.markdown("#### أرصدة الذمم (العملاء الآجل)")
     st.dataframe(ar[["العميل","إيراد آجل","مدفوع","الرصيد"]] if not ar.empty else ar, use_container_width=True)
-    # --- نسخة احتياطية / استرجاع ---
+
+# --- نسخة احتياطية / استرجاع ---
 st.markdown("---")
 st.markdown("#### 🧯 نسخة احتياطية / استرجاع قاعدة البيانات")
 
@@ -1024,7 +996,6 @@ else:
 # رفع نسخة لاسترجاعها
 up = st.file_uploader("📤 ارفع ملف SQLite للاسترجاع (سَيَستبدل القاعدة الحالية)", type=["sqlite","db"])
 if up is not None:
-    # احفظ نسخة احتياطية قديمة ثم استبدل
     try:
         if os.path.exists(DB_FILE):
             os.replace(DB_FILE, DB_FILE + ".bak")
@@ -1034,7 +1005,7 @@ if up is not None:
     except Exception as e:
         st.error(f"تعذر الاسترجاع: {e}")
 
-# ====================== الجزء 6/6 — التقارير (شهري + أسبوعي) ======================
+# ====================== التقارير (شهري + أسبوعي) ======================
 with TAB_REPORT:
     st.subheader("📑 التقارير")
 
@@ -1048,12 +1019,10 @@ with TAB_REPORT:
         if df.empty:
             st.warning("لا توجد بيانات.")
         else:
-            # تصفية الشهر المطلوب
             df_month = df[(df["dte"].dt.year == int(R_y)) & (df["dte"].dt.month == int(R_m))].copy()
             if df_month.empty:
                 st.warning("لا توجد بيانات داخل هذا الشهر.")
             else:
-                # ملخص شهري (أعداد صحيحة)
                 summary = {
                     "إجمالي المبيعات":        [int(df_month["إجمالي المبيعات"].sum())],
                     "إجمالي المصروفات":      [int(df_month["الإجمالي اليومي للمصروفات"].sum())],
@@ -1063,7 +1032,6 @@ with TAB_REPORT:
                 }
                 summary_df = pd.DataFrame(summary)
 
-                # عملاء/توريد وسداد داخل الشهر
                 conn = _connect()
                 delivs = pd.read_sql_query(
                     """
@@ -1095,89 +1063,84 @@ with TAB_REPORT:
                 )
                 conn.close()
 
-                # إعداد ملف اكسل متعدد الأوراق
                 out_path = f"/tmp/تقرير_المخبز_{int(R_y)}_{int(R_m):02d}.xlsx"
-                with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
-                    # ملخص
-                    for c in summary_df.columns:
-                        summary_df[c] = summary_df[c].fillna(0).astype(int)
-                    summary_df.to_excel(writer, sheet_name="ملخص", index=False)
+                try:
+                    with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
+                        for c in summary_df.columns:
+                            summary_df[c] = summary_df[c].fillna(0).astype(int)
+                        summary_df.to_excel(writer, sheet_name="ملخص", index=False)
 
-                    # اليومي
-                    show = df_month.copy()
-                    show.rename(columns={
-                        "dte":"التاريخ",
-                        "units_samoli":"إنتاج الصامولي (عدد)",
-                        "per_thousand_samoli":"الصامولي: عدد الأرغفة لكل 1000",
-                        "units_madour":"إنتاج المدور (عدد)",
-                        "per_thousand_madour":"المدور: عدد الأرغفة لكل 1000",
-                        "flour_bags":"جوالات الدقيق",
-                        "flour_bag_price":"سعر جوال الدقيق",
-                        "flour_extra":"دقيق إضافي","yeast":"خميرة","salt":"ملح","oil":"زيت/سمن","gas":"غاز",
-                        "electricity":"كهرباء","water":"مياه","salaries":"رواتب","maintenance":"صيانة","petty":"نثريات","other_exp":"مصاريف أخرى",
-                        "ice":"ثلج","bags":"أكياس","daily_meal":"فطور يومي",
-                        "owner_withdrawal":"سلفة","owner_repayment":"رد سلفة","owner_injection":"تمويل","funding":"تحويلات أخرى",
-                        "returns":"مرتجع/هالك","discounts":"خصومات/عروض"
-                    }, inplace=True)
-                    for col in show.columns:
-                        if col != "التاريخ":
-                            show[col] = show[col].fillna(0).astype(int)
-                    show.to_excel(writer, sheet_name="اليومي", index=False)
-
-                    # توريد العملاء
-                    if not delivs.empty:
-                        delivs_out = delivs.copy()
-                        delivs_out.rename(columns={
-                            "dte":"التاريخ","client_name":"العميل","bread_type":"النوع","units":"الكمية",
-                            "per_thousand":"عدد للرغيف/1000","revenue":"الإيراد","payment_method":"طريقة الدفع","cash_source":"مصدر النقد"
+                        show = df_month.copy()
+                        show.rename(columns={
+                            "dte":"التاريخ",
+                            "units_samoli":"إنتاج الصامولي (عدد)",
+                            "per_thousand_samoli":"الصامولي: عدد الأرغفة لكل 1000",
+                            "units_madour":"إنتاج المدور (عدد)",
+                            "per_thousand_madour":"المدور: عدد الأرغفة لكل 1000",
+                            "flour_bags":"جوالات الدقيق",
+                            "flour_bag_price":"سعر جوال الدقيق",
+                            "flour_extra":"دقيق إضافي","yeast":"خميرة","salt":"ملح","oil":"زيت/سمن","gas":"غاز",
+                            "electricity":"كهرباء","water":"مياه","salaries":"رواتب","maintenance":"صيانة","petty":"نثريات","other_exp":"مصاريف أخرى",
+                            "ice":"ثلج","bags":"أكياس","daily_meal":"فطور يومي",
+                            "owner_withdrawal":"سلفة","owner_repayment":"رد سلفة","owner_injection":"تمويل","funding":"تحويلات أخرى",
+                            "returns":"مرتجع/هالك","discounts":"خصومات/عروض"
                         }, inplace=True)
-                        for c in ["الكمية","عدد للرغيف/1000","الإيراد"]:
-                            if c in delivs_out.columns:
-                                delivs_out[c] = delivs_out[c].fillna(0).astype(int)
-                        delivs_out.to_excel(writer, sheet_name="العملاء", index=False)
-                    else:
-                        pd.DataFrame(columns=["لا توجد توريدات في هذا الشهر"]).to_excel(writer, sheet_name="العملاء", index=False)
+                        for col in show.columns:
+                            if col != "التاريخ":
+                                show[col] = show[col].fillna(0).astype(int)
+                        show.to_excel(writer, sheet_name="اليومي", index=False)
 
-                    # سداد العملاء
-                    if not pays.empty:
-                        pays_out = pays.copy()
-                        pays_out.rename(columns={"dte":"التاريخ","client_name":"العميل","amount":"المبلغ","source":"المصدر","note":"ملاحظة"}, inplace=True)
-                        pays_out["المبلغ"] = pays_out["المبلغ"].fillna(0).astype(int)
-                        pays_out.to_excel(writer, sheet_name="سداد_العملاء", index=False)
-                    else:
-                        pd.DataFrame(columns=["لا توجد مدفوعات عملاء في هذا الشهر"]).to_excel(writer, sheet_name="سداد_العملاء", index=False)
+                        if not delivs.empty:
+                            delivs_out = delivs.copy()
+                            delivs_out.rename(columns={
+                                "dte":"التاريخ","client_name":"العميل","bread_type":"النوع","units":"الكمية",
+                                "per_thousand":"عدد للرغيف/1000","revenue":"الإيراد","payment_method":"طريقة الدفع","cash_source":"مصدر النقد"
+                            }, inplace=True)
+                            for c in ["الكمية","عدد للرغيف/1000","الإيراد"]:
+                                if c in delivs_out.columns:
+                                    delivs_out[c] = delivs_out[c].fillna(0).astype(int)
+                            delivs_out.to_excel(writer, sheet_name="العملاء", index=False)
+                        else:
+                            pd.DataFrame(columns=["لا توجد توريدات في هذا الشهر"]).to_excel(writer, sheet_name="العملاء", index=False)
 
-                    # الذمم (AR) حتى تاريخه (ملف تعريفي)
-                    ar_month = fetch_ar_df()
-                    ar_month.to_excel(writer, sheet_name="الذمم", index=False)
+                        if not pays.empty:
+                            pays_out = pays.copy()
+                            pays_out.rename(columns={"dte":"التاريخ","client_name":"العميل","amount":"المبلغ","source":"المصدر","note":"ملاحظة"}, inplace=True)
+                            pays_out["المبلغ"] = pays_out["المبلغ"].fillna(0).astype(int)
+                            pays_out.to_excel(writer, sheet_name="سداد_العملاء", index=False)
+                        else:
+                            pd.DataFrame(columns=["لا توجد مدفوعات عملاء في هذا الشهر"]).to_excel(writer, sheet_name="سداد_العملاء", index=False)
 
-                    # حركة النقد
-                    if not money.empty:
-                        money_out = money.copy()
-                        money_out.rename(columns={"dte":"التاريخ","source":"المصدر","amount":"المبلغ","reason":"السبب"}, inplace=True)
-                        money_out["المبلغ"] = money_out["المبلغ"].fillna(0).astype(int)
-                        money_out.to_excel(writer, sheet_name="حركة_النقد", index=False)
-                    else:
-                        pd.DataFrame(columns=["لا توجد حركات نقدية في هذا الشهر"]).to_excel(writer, sheet_name="حركة_النقد", index=False)
+                        ar_month = fetch_ar_df()
+                        ar_month.to_excel(writer, sheet_name="الذمم", index=False)
 
-                with open(out_path, "rb") as f:
-                    st.download_button(
-                        label="📥 تحميل التقرير الشهري",
-                        data=f,
-                        file_name=os.path.basename(out_path),
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    )
+                        if not money.empty:
+                            money_out = money.copy()
+                            money_out.rename(columns={"dte":"التاريخ","source":"المصدر","amount":"المبلغ","reason":"السبب"}, inplace=True)
+                            money_out["المبلغ"] = money_out["المبلغ"].fillna(0).astype(int)
+                            money_out.to_excel(writer, sheet_name="حركة_النقد", index=False)
+                        else:
+                            pd.DataFrame(columns=["لا توجد حركات نقدية في هذا الشهر"]).to_excel(writer, sheet_name="حركة_النقد", index=False)
+                except Exception as e:
+                    st.error(f"فشل إنشاء ملف Excel: {e}")
+                else:
+                    with open(out_path, "rb") as f:
+                        st.download_button(
+                            label="📥 تحميل التقرير الشهري",
+                            data=f,
+                            file_name=os.path.basename(out_path),
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        )
 
     st.markdown("---")
 
     # -------- تقرير أسبوعي --------
     st.subheader("📆 تقرير أسبوعي")
 
-    # اختار أي تاريخ داخل الأسبوع؛ هنحسب الإثنين إلى الأحد تلقائي
     w_col1, w_col2 = st.columns(2)
     picked_day = w_col1.date_input("اختر يوم داخل الأسبوع", value=date.today(), key="weekly_pick_day")
     show_chart = w_col2.checkbox("عرض مخطط الربح خلال الأسبوع", value=True, key="weekly_show_chart")
-    # حساب مدى الأسبوع (الإثنين بدايةً)
+
     picked_ts = pd.Timestamp(picked_day)
     week_start = picked_ts - pd.Timedelta(days=(picked_ts.weekday()))   # Monday
     week_end   = week_start + pd.Timedelta(days=6)                      # Sunday
@@ -1194,7 +1157,6 @@ with TAB_REPORT:
             if df_week.empty:
                 st.warning("لا توجد بيانات داخل هذا الأسبوع.")
             else:
-                # ملخص أسبوعي (أعداد صحيحة)
                 weekly_summary = pd.DataFrame({
                     "إجمالي المبيعات":        [int(df_week["إجمالي المبيعات"].sum())],
                     "إجمالي المصروفات":      [int(df_week["الإجمالي اليومي للمصروفات"].sum())],
@@ -1203,7 +1165,6 @@ with TAB_REPORT:
                     "متوسط إنتاجية الجوال":  [int(df_week["إنتاجية الجوال (رغيف/جوال)"].replace(0, pd.NA).dropna().mean() or 0)],
                 })
 
-                # توريدات ومدفوعات وحركة نقد داخل الأسبوع
                 conn = _connect()
                 delivs_w = pd.read_sql_query(
                     """
@@ -1238,76 +1199,72 @@ with TAB_REPORT:
                 )
                 conn.close()
 
-                # إعداد ملف اكسل
                 out_w_path = f"/tmp/تقرير_المخبز_اسبوع_{week_start.date()}_{week_end.date()}.xlsx"
-                with pd.ExcelWriter(out_w_path, engine="openpyxl") as writer:
-                    # ملخص
-                    for c in weekly_summary.columns:
-                        weekly_summary[c] = weekly_summary[c].fillna(0).astype(int)
-                    weekly_summary.to_excel(writer, sheet_name="ملخص", index=False)
+                try:
+                    with pd.ExcelWriter(out_w_path, engine="openpyxl") as writer:
+                        for c in weekly_summary.columns:
+                            weekly_summary[c] = weekly_summary[c].fillna(0).astype(int)
+                        weekly_summary.to_excel(writer, sheet_name="ملخص", index=False)
 
-                    # اليومي داخل الأسبوع
-                    show_w = df_week.copy()
-                    show_w.rename(columns={
-                        "dte":"التاريخ",
-                        "units_samoli":"إنتاج الصامولي (عدد)",
-                        "per_thousand_samoli":"الصامولي: عدد الأرغفة لكل 1000",
-                        "units_madour":"إنتاج المدور (عدد)",
-                        "per_thousand_madour":"المدور: عدد الأرغفة لكل 1000",
-                        "flour_bags":"جوالات الدقيق",
-                        "flour_bag_price":"سعر جوال الدقيق",
-                        "flour_extra":"دقيق إضافي","yeast":"خميرة","salt":"ملح","oil":"زيت/سمن","gas":"غاز",
-                        "electricity":"كهرباء","water":"مياه","salaries":"رواتب","maintenance":"صيانة","petty":"نثريات","other_exp":"مصاريف أخرى",
-                        "ice":"ثلج","bags":"أكياس","daily_meal":"فطور يومي",
-                        "owner_withdrawal":"سلفة","owner_repayment":"رد سلفة","owner_injection":"تمويل","funding":"تحويلات أخرى",
-                        "returns":"مرتجع/هالك","discounts":"خصومات/عروض"
-                    }, inplace=True)
-                    for col in show_w.columns:
-                        if col != "التاريخ":
-                            show_w[col] = show_w[col].fillna(0).astype(int)
-                    show_w.to_excel(writer, sheet_name="اليومي", index=False)
-
-                    # توريدات الأسبوع
-                    if not delivs_w.empty:
-                        del_out = delivs_w.copy()
-                        del_out.rename(columns={
-                            "dte":"التاريخ","client_name":"العميل","bread_type":"النوع","units":"الكمية",
-                            "per_thousand":"عدد للرغيف/1000","revenue":"الإيراد","payment_method":"طريقة الدفع","cash_source":"مصدر النقد"
+                        show_w = df_week.copy()
+                        show_w.rename(columns={
+                            "dte":"التاريخ",
+                            "units_samoli":"إنتاج الصامولي (عدد)",
+                            "per_thousand_samoli":"الصامولي: عدد الأرغفة لكل 1000",
+                            "units_madour":"إنتاج المدور (عدد)",
+                            "per_thousand_madour":"المدور: عدد الأرغفة لكل 1000",
+                            "flour_bags":"جوالات الدقيق",
+                            "flour_bag_price":"سعر جوال الدقيق",
+                            "flour_extra":"دقيق إضافي","yeast":"خميرة","salt":"ملح","oil":"زيت/سمن","gas":"غاز",
+                            "electricity":"كهرباء","water":"مياه","salaries":"رواتب","maintenance":"صيانة","petty":"نثريات","other_exp":"مصاريف أخرى",
+                            "ice":"ثلج","bags":"أكياس","daily_meal":"فطور يومي",
+                            "owner_withdrawal":"سلفة","owner_repayment":"رد سلفة","owner_injection":"تمويل","funding":"تحويلات أخرى",
+                            "returns":"مرتجع/هالك","discounts":"خصومات/عروض"
                         }, inplace=True)
-                        for c in ["الكمية","عدد للرغيف/1000","الإيراد"]:
-                            if c in del_out.columns:
-                                del_out[c] = del_out[c].fillna(0).astype(int)
-                        del_out.to_excel(writer, sheet_name="العملاء", index=False)
-                    else:
-                        pd.DataFrame(columns=["لا توجد توريدات في هذا الأسبوع"]).to_excel(writer, sheet_name="العملاء", index=False)
+                        for col in show_w.columns:
+                            if col != "التاريخ":
+                                show_w[col] = show_w[col].fillna(0).astype(int)
+                        show_w.to_excel(writer, sheet_name="اليومي", index=False)
 
-                    # سداد العملاء (الآجل)
-                    if not pays_w.empty:
-                        pays_out = pays_w.copy()
-                        pays_out.rename(columns={"dte":"التاريخ","client_name":"العميل","amount":"المبلغ","source":"المصدر","note":"ملاحظة"}, inplace=True)
-                        pays_out["المبلغ"] = pays_out["المبلغ"].fillna(0).astype(int)
-                        pays_out.to_excel(writer, sheet_name="سداد_العملاء", index=False)
-                    else:
-                        pd.DataFrame(columns=["لا توجد مدفوعات عملاء في هذا الأسبوع"]).to_excel(writer, sheet_name="سداد_العملاء", index=False)
+                        if not delivs_w.empty:
+                            del_out = delivs_w.copy()
+                            del_out.rename(columns={
+                                "dte":"التاريخ","client_name":"العميل","bread_type":"النوع","units":"الكمية",
+                                "per_thousand":"عدد للرغيف/1000","revenue":"الإيراد","payment_method":"طريقة الدفع","cash_source":"مصدر النقد"
+                            }, inplace=True)
+                            for c in ["الكمية","عدد للرغيف/1000","الإيراد"]:
+                                if c in del_out.columns:
+                                    del_out[c] = del_out[c].fillna(0).astype(int)
+                            del_out.to_excel(writer, sheet_name="العملاء", index=False)
+                        else:
+                            pd.DataFrame(columns=["لا توجد توريدات في هذا الأسبوع"]).to_excel(writer, sheet_name="العملاء", index=False)
 
-                    # حركة النقد
-                    if not money_w.empty:
-                        money_out = money_w.copy()
-                        money_out.rename(columns={"dte":"التاريخ","source":"المصدر","amount":"المبلغ","reason":"السبب"}, inplace=True)
-                        money_out["المبلغ"] = money_out["المبلغ"].fillna(0).astype(int)
-                        money_out.to_excel(writer, sheet_name="حركة_النقد", index=False)
-                    else:
-                        pd.DataFrame(columns=["لا توجد حركات نقدية في هذا الأسبوع"]).to_excel(writer, sheet_name="حركة_النقد", index=False)
+                        if not pays_w.empty:
+                            pays_out = pays_w.copy()
+                            pays_out.rename(columns={"dte":"التاريخ","client_name":"العميل","amount":"المبلغ","source":"المصدر","note":"ملاحظة"}, inplace=True)
+                            pays_out["المبلغ"] = pays_out["المبلغ"].fillna(0).astype(int)
+                            pays_out.to_excel(writer, sheet_name="سداد_العملاء", index=False)
+                        else:
+                            pd.DataFrame(columns=["لا توجد مدفوعات عملاء في هذا الأسبوع"]).to_excel(writer, sheet_name="سداد_العملاء", index=False)
 
-                with open(out_w_path, "rb") as f:
-                    st.download_button(
-                        label="📥 تحميل التقرير الأسبوعي",
-                        data=f,
-                        file_name=os.path.basename(out_w_path),
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    )
+                        if not money_w.empty:
+                            money_out = money_w.copy()
+                            money_out.rename(columns={"dte":"التاريخ","source":"المصدر","amount":"المبلغ","reason":"السبب"}, inplace=True)
+                            money_out["المبلغ"] = money_out["المبلغ"].fillna(0).astype(int)
+                            money_out.to_excel(writer, sheet_name="حركة_النقد", index=False)
+                        else:
+                            pd.DataFrame(columns=["لا توجد حركات نقدية في هذا الأسبوع"]).to_excel(writer, sheet_name="حركة_النقد", index=False)
+                except Exception as e:
+                    st.error(f"فشل إنشاء ملف Excel: {e}")
+                else:
+                    with open(out_w_path, "rb") as f:
+                        st.download_button(
+                            label="📥 تحميل التقرير الأسبوعي",
+                            data=f,
+                            file_name=os.path.basename(out_w_path),
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        )
 
-    # مخطط الربح للأسبوع (اختياري للعرض داخل الصفحة)
     if show_chart:
         dfw2 = fetch_daily_df()
         if not dfw2.empty:
