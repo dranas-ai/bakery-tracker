@@ -1,18 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Streamlit Bakery Tracker — إصدار شامل (غير دائم)
-- أعداد صحيحة فقط (بدون كسور/فواصل)
-- نوعان خبز: صامولي/مدور — تسعير بالألف (كم رغيف لكل 1000)
-- تكلفة الدقيق = عدد الجوالات * سعر الجوال
-- مصروفات إضافية: ثلج/أكياس/فطور يومي/... إلخ
-- إيجار يومي محسوب تلقائيًا من الإيجار الشهري عبر جدول rent_settings
-- سلفة / رد سلفة / تمويل / تحويلات أخرى — لا تؤثر على الربح، وتُسجَّل في حركة النقد باختيار المصدر (خزنة/بنك)
-- فصل الكاش عن البنك عبر جدول money_moves + عرض أرصدة الخزنة والبنك
-- العملاء والتوريد اليومي (نقدي/آجل) + مدفوعات العملاء + أرصدة الذمم
-- تقرير شهري + أسبوعي متعدد الأوراق للتنزيل (ملخص/يومي/العملاء/الذمم/حركة النقد)
-- مؤشر إنتاجية جوال الدقيق
-
-مهم: النسخة غير دائمة — قاعدة البيانات في /tmp
+Streamlit Bakery Tracker — إصدار شامل (غير دائم) — نسخة متجاوبة للموبايل
+- تعمل بسلاسة على متصفحات الهواتف (أندرويد/آيفون) والكمبيوتر
+- واجهة RTL محسّنة للمس، مع تكديس الأعمدة تلقائيًا على الشاشات الصغيرة
+- نفس المنطق المالي والميزات الأصلية
 """
 
 import os
@@ -23,15 +14,60 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-# ====================== ثوابت عامة ======================
+# ====================== إعداد عام ======================
 DB_FILE = "/tmp/bakery_tracker.db"   # تخزين غير دائم
 THOUSAND = 1000
 FUND_LOOKBACK_DAYS = 14
 GROWTH_WINDOW_DAYS = 14
 
-# =============== أدوات مساعدة عامة ===============
+st.set_page_config(page_title="متابعة المخبز — شامل (غير دائم)", layout="wide")
+
+# تحسينات مظهر/تجاوب قوية للموبايل
+st.markdown(
+    """
+    <style>
+    :root {
+      --touch-pad: 12px;
+      --font-base: 15px;
+      --font-lg: 17px;
+      --radius-xl: 14px;
+      --shadow-soft: 0 6px 18px rgba(0,0,0,.06);
+    }
+    html, body, [class*="css"] { direction: rtl; font-family: "Tajawal","Segoe UI","Tahoma",Arial,sans-serif; }
+    * { -webkit-tap-highlight-color: rgba(0,0,0,0); }
+    .block-container { padding-top: 1rem; padding-bottom: 4rem; }
+    [data-testid="stMetricLabel"] { direction: rtl; }
+    .stButton>button, .stDownloadButton>button { width: 100%; border-radius: var(--radius-xl); padding: .8rem 1rem; box-shadow: var(--shadow-soft); }
+    .stTextInput>div>div>input, .stNumberInput input, .stSelectbox>div>div>div, .stDateInput input {
+      border-radius: var(--radius-xl) !important;
+    }
+    .stExpander { border: 1px solid #eee; border-radius: var(--radius-xl); box-shadow: var(--shadow-soft); }
+    .stTabs [data-baseweb="tab-list"] { gap: .5rem; }
+    .stTabs [data-baseweb="tab"] { padding: .6rem .9rem; border-radius: var(--radius-xl); }
+    .stDataFrame { border-radius: var(--radius-xl); overflow: hidden; box-shadow: var(--shadow-soft); }
+    .small-note { font-size: 12px; opacity: .75; }
+
+    /* تكديس الأعمدة على الشاشات الصغيرة وتحسين اللمس */
+    @media (max-width: 900px) {
+      .block-container { padding-left: .6rem; padding-right: .6rem; }
+      .st-emotion-cache-ocqkz7, .st-emotion-cache-1y4p8pa { gap: .5rem !important; }
+      .stMetric { margin-bottom: .5rem; }
+      .stPlotlyChart { margin-top: .5rem; }
+      .stTabs [data-baseweb="tab"] { font-size: 14px; }
+    }
+    @media (max-width: 600px) {
+      .stButton>button, .stDownloadButton>button { font-size: 15px; padding: .9rem 1.1rem; }
+      .stExpander { margin-bottom: .6rem; }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.title("📊 نظام متابعة المخبز — شامل (تجريبي غير دائم)")
+
+# ====================== أدوات مساعدة ======================
 def fmt_i(x):
-    """تنسيق رقم صحيح كنص بدون فواصل/كسور."""
     try:
         return str(int(round(float(x or 0))))
     except Exception:
@@ -40,24 +76,22 @@ def fmt_i(x):
 @st.cache_data(show_spinner=False)
 def days_in_month(y: int, m: int) -> int:
     if m == 12:
-        d1 = date(y, m, 1)
-        d2 = date(y+1, 1, 1)
+        d1 = date(y, m, 1); d2 = date(y+1, 1, 1)
     else:
-        d1 = date(y, m, 1)
-        d2 = date(y, m+1, 1)
+        d1 = date(y, m, 1); d2 = date(y, m+1, 1)
     return (d2 - d1).days
 
-# ====================== اتصال/تهيئة قاعدة البيانات ======================
+# ====================== قاعدة البيانات ======================
 def _connect():
     os.makedirs(os.path.dirname(DB_FILE), exist_ok=True)
-    return sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE)
+    return conn
 
 def init_db():
     conn = _connect()
     cur = conn.cursor()
 
-    # ========== الجداول الأساسية ==========
-    # اليوميات
+    # جداول أساسية
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS daily (
@@ -88,23 +122,21 @@ def init_db():
             owner_injection INTEGER,
             funding INTEGER,
             returns INTEGER,
-            discounts INTEGER
+            discounts INTEGER,
+            branch_id INTEGER DEFAULT 1
         )
         """
     )
-
-    # العملاء
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS clients (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE,
-            active INTEGER DEFAULT 1
+            active INTEGER DEFAULT 1,
+            branch_id INTEGER DEFAULT 1
         )
         """
     )
-
-    # توريدات العملاء
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS client_deliveries (
@@ -117,12 +149,11 @@ def init_db():
             revenue INTEGER,
             payment_method TEXT,
             cash_source TEXT,
+            branch_id INTEGER DEFAULT 1,
             FOREIGN KEY(client_id) REFERENCES clients(id)
         )
         """
     )
-
-    # مدفوعات العملاء
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS client_payments (
@@ -132,12 +163,11 @@ def init_db():
             amount INTEGER,
             source TEXT,
             note TEXT,
+            branch_id INTEGER DEFAULT 1,
             FOREIGN KEY(client_id) REFERENCES clients(id)
         )
         """
     )
-
-    # الإيجار الشهري
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS rent_settings (
@@ -148,8 +178,6 @@ def init_db():
         )
         """
     )
-
-    # حركة النقد
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS money_moves (
@@ -157,74 +185,25 @@ def init_db():
             dte TEXT,
             source TEXT,
             amount INTEGER,
-            reason TEXT
+            reason TEXT,
+            branch_id INTEGER DEFAULT 1
         )
         """
     )
 
-    # ترقيات أعمدة ناقصة في daily
-    cur.execute("PRAGMA table_info(daily)")
-    cols = {r[1] for r in cur.fetchall()}
-    for col, sql in [
-        ("flour_bag_price", "ALTER TABLE daily ADD COLUMN flour_bag_price INTEGER"),
-        ("owner_withdrawal", "ALTER TABLE daily ADD COLUMN owner_withdrawal INTEGER"),
-        ("owner_repayment", "ALTER TABLE daily ADD COLUMN owner_repayment INTEGER"),
-        ("owner_injection", "ALTER TABLE daily ADD COLUMN owner_injection INTEGER"),
-        ("funding", "ALTER TABLE daily ADD COLUMN funding INTEGER"),
-        ("returns", "ALTER TABLE daily ADD COLUMN returns INTEGER"),
-        ("discounts", "ALTER TABLE daily ADD COLUMN discounts INTEGER"),
-    ]:
-        if col not in cols:
-            try:
-                cur.execute(sql)
-            except Exception:
-                pass
-
-    # ========== الفروع وقابلية التوسع ==========
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS branches (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
-            active INTEGER DEFAULT 1
-        )
-        """
-    )
-    # إنشاء فرع افتراضي إن لم يوجد
-    cur.execute("INSERT OR IGNORE INTO branches(id, name, active) VALUES (1,'الفرع الرئيسي',1)")
-
-    # إضافة branch_id لكل الجداول (بقيمة افتراضية 1)
-    def ensure_branch(table):
-        cur.execute(f"PRAGMA table_info({table})")
-        if "branch_id" not in {r[1] for r in cur.fetchall()}:
-            try:
-                cur.execute(f"ALTER TABLE {table} ADD COLUMN branch_id INTEGER DEFAULT 1")
-            except Exception:
-                pass
-        # توحيد القيم الفارغة إلى 1
-        try:
-            cur.execute(f"UPDATE {table} SET branch_id=1 WHERE branch_id IS NULL")
-        except Exception:
-            pass
-
-    for t in ["daily","money_moves","client_deliveries","client_payments","clients"]:
-        ensure_branch(t)
-
-    # ========== فهارس الأداء ==========
+    # فهارس
     cur.execute("CREATE INDEX IF NOT EXISTS idx_daily_dte ON daily(dte)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_moves_dte ON money_moves(dte)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_cd_dte ON client_deliveries(dte)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_cp_dte ON client_payments(dte)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_clients_name ON clients(name)")
-    # فهارس مدمجة بالفرع
     cur.execute("CREATE INDEX IF NOT EXISTS idx_daily_branch_date ON daily(branch_id, dte)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_moves_branch_date ON money_moves(branch_id, dte)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_cd_branch_date ON client_deliveries(branch_id, dte)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_cp_branch_date ON client_payments(branch_id, dte)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_clients_branch ON clients(branch_id)")
 
-    # ========== قيود الجودة عبر Triggers (SQLite) ==========
-    # bread_type ∈ {samoli, madour}
+    # قيود جودة
     cur.execute(
         """
         CREATE TRIGGER IF NOT EXISTS trg_cd_bread_type_ins
@@ -249,8 +228,6 @@ def init_db():
         END;
         """
     )
-
-    # payment_method ∈ {cash, credit}
     cur.execute(
         """
         CREATE TRIGGER IF NOT EXISTS trg_cd_paymethod_ins
@@ -275,8 +252,6 @@ def init_db():
         END;
         """
     )
-
-    # source ∈ {cash, bank} في money_moves و client_payments
     cur.execute(
         """
         CREATE TRIGGER IF NOT EXISTS trg_mm_source_ins
@@ -325,8 +300,6 @@ def init_db():
         END;
         """
     )
-
-    # قيم غير سالبة (حيث يلزم) في daily — funding يسمح بالسالب/الموجب
     cur.execute(
         """
         CREATE TRIGGER IF NOT EXISTS trg_daily_nonneg_ins
@@ -399,16 +372,18 @@ def init_db():
     conn.commit()
     conn.close()
 
-# ====================== دوال مساعدة للبيانات ======================
+# تهيئة لمرة واحدة لكل جلسة
+if "db_init" not in st.session_state:
+    init_db()
+    st.session_state["db_init"] = True
 
+# ====================== دوال بيانات ======================
 def revenue_from_thousand(units: int, per_thousand: int) -> int:
-    u = int(units or 0)
-    p = int(per_thousand or 0)
+    u = int(units or 0); p = int(per_thousand or 0)
     if p <= 0:
         return 0
     return int(round((u / p) * THOUSAND))
 
-# الإيجار الشهري/اليومي
 def set_monthly_rent(year: int, month: int, monthly_rent: int):
     conn = _connect(); cur = conn.cursor()
     cur.execute(
@@ -427,13 +402,13 @@ def get_monthly_rent(year: int, month: int) -> int:
     conn.close()
     return int(row[0]) if row and row[0] is not None else 0
 
+@st.cache_data(show_spinner=False)
 def rent_per_day_for(dt: pd.Timestamp) -> int:
     y, m = dt.year, dt.month
     rent_m = get_monthly_rent(y, m)
     dim = days_in_month(y, m)
     return int(round(rent_m / dim)) if dim else 0
 
-# حركة النقد
 def add_money_move(dte: date, source: str, amount: int, reason: str):
     if source not in ("cash", "bank"):
         return
@@ -446,6 +421,7 @@ def add_money_move(dte: date, source: str, amount: int, reason: str):
     )
     conn.commit(); conn.close()
 
+@st.cache_data(show_spinner=False)
 def money_balances() -> dict:
     conn = _connect()
     df = pd.read_sql_query("SELECT source, SUM(amount) AS bal FROM money_moves GROUP BY source", conn)
@@ -454,7 +430,6 @@ def money_balances() -> dict:
     bank = int(df.loc[df["source"] == "bank", "bal"].sum()) if not df.empty else 0
     return {"cash": cash, "bank": bank}
 
-# CRUD: daily
 def insert_daily(row: tuple):
     conn = _connect(); cur = conn.cursor()
     cur.execute(
@@ -473,7 +448,9 @@ def insert_daily(row: tuple):
         row
     )
     conn.commit(); conn.close()
+    fetch_daily_df.clear()  # تحديث الكاش
 
+@st.cache_data(show_spinner=False)
 def fetch_daily_df() -> pd.DataFrame:
     conn = _connect()
     df = pd.read_sql_query("SELECT * FROM daily ORDER BY dte ASC, id ASC", conn, parse_dates=["dte"])
@@ -481,43 +458,34 @@ def fetch_daily_df() -> pd.DataFrame:
     if df.empty:
         return df
 
-    # إيرادات النوعين
     df["إيراد الصامولي"] = [revenue_from_thousand(u, p) for u, p in zip(df["units_samoli"], df["per_thousand_samoli"])]
     df["إيراد المدور"]   = [revenue_from_thousand(u, p) for u, p in zip(df["units_madour"], df["per_thousand_madour"])]
     df["إجمالي المبيعات"] = (df["إيراد الصامولي"].fillna(0) + df["إيراد المدور"].fillna(0)).astype(int)
 
-    # تكلفة الدقيق
     df["تكلفة الدقيق"] = (df["flour_bags"].fillna(0).astype(int) * df["flour_bag_price"].fillna(0).astype(int)).astype(int)
-
-    # إيجار يومي من الإعدادات
     df["إيجار يومي"] = df["dte"].apply(lambda ts: rent_per_day_for(pd.Timestamp(ts)))
 
-    # إجمالي المصروفات اليومية (تشغيلية + إيجار يومي)
     expense_cols = [
         "تكلفة الدقيق","flour_extra","yeast","salt","oil","gas","electricity","water",
-        "salaries","maintenance","petty","other_exp","ice","bags","daily_meal",
-        "إيجار يومي"
+        "salaries","maintenance","petty","other_exp","ice","bags","daily_meal","إيجار يومي"
     ]
     for c in expense_cols:
         if c not in df.columns:
             df[c] = 0
     df["الإجمالي اليومي للمصروفات"] = df[expense_cols].fillna(0).astype(int).sum(axis=1).astype(int)
-
-    # صافي الربح
     df["الربح الصافي لليوم"] = (df["إجمالي المبيعات"].fillna(0) - df["الإجمالي اليومي للمصروفات"].fillna(0)).astype(int)
 
-    # إنتاجية الجوال = إجمالي الأرغفة / الجوالات
     total_units = (df["units_samoli"].fillna(0).astype(int) + df["units_madour"].fillna(0).astype(int))
     df["إنتاجية الجوال (رغيف/جوال)"] = [int(u // b) if int(b or 0) > 0 else 0 for u, b in zip(total_units, df["flour_bags"].fillna(0))]
 
     return df
 
-# عملاء
 def add_client(name: str, active: bool = True):
     conn = _connect(); cur = conn.cursor()
     cur.execute("INSERT OR IGNORE INTO clients(name,active) VALUES(?,?)", (name.strip(), 1 if active else 0))
     conn.commit(); conn.close()
 
+@st.cache_data(show_spinner=False)
 def list_clients(active_only=False) -> pd.DataFrame:
     conn = _connect()
     q = "SELECT id,name,active FROM clients" + (" WHERE active=1" if active_only else "") + " ORDER BY name"
@@ -528,8 +496,8 @@ def set_client_active(client_id: int, active: bool):
     conn = _connect(); cur = conn.cursor()
     cur.execute("UPDATE clients SET active=? WHERE id=?", (1 if active else 0, int(client_id)))
     conn.commit(); conn.close()
+    list_clients.clear()
 
-# توريدات العملاء
 def add_client_delivery(dte: date, client_id: int, bread_type: str, units: int, per_thousand: int, payment_method: str, cash_source: str):
     rev = revenue_from_thousand(units, per_thousand)
     conn = _connect(); cur = conn.cursor()
@@ -542,11 +510,9 @@ def add_client_delivery(dte: date, client_id: int, bread_type: str, units: int, 
     )
     conn.commit(); conn.close()
 
-    # لو نقدي: نسجل حركة نقد
     if payment_method == "cash":
-        add_money_move(dte, "cash" if cash_source == "cash" or cash_source == "خزنة" else "bank", rev, f"تحصيل توريد عميل ({bread_type})")
+        add_money_move(dte, "cash" if cash_source in ("cash","خزنة") else "bank", rev, f"تحصيل توريد عميل ({bread_type})")
 
-# مدفوعات العملاء (لسداد الآجل)
 def add_client_payment(dte: date, client_id: int, amount: int, source: str, note: str = "سداد عميل"):
     if int(amount or 0) <= 0:
         return
@@ -558,7 +524,6 @@ def add_client_payment(dte: date, client_id: int, amount: int, source: str, note
     conn.commit(); conn.close()
     add_money_move(dte, source, amount, note)
 
-# أرصدة الذمم
 def fetch_ar_df() -> pd.DataFrame:
     conn = _connect()
     dels = pd.read_sql_query("SELECT dte, client_id, revenue, payment_method FROM client_deliveries", conn, parse_dates=["dte"])
@@ -577,25 +542,7 @@ def fetch_ar_df() -> pd.DataFrame:
     base["الرصيد"] = (base["إيراد آجل"] - base["مدفوع"]).astype(int)
     return base.sort_values("الرصيد", ascending=False)
 
-# ====================== التهيئة وواجهة المستخدم ======================
-st.set_page_config(page_title="متابعة المخبز — شامل (غير دائم)", layout="wide")
-st.markdown(
-    """
-    <style>
-    html, body, [class*="css"] { direction: rtl; font-family: "Segoe UI", "Tahoma", "Arial", sans-serif; }
-    [data-testid="stMetricLabel"] { direction: rtl; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# العنوان
-st.title("📊 نظام متابعة المخبز — شامل (تجريبي غير دائم)")
-
-# تهيئة القاعدة
-init_db()
-
-# التبويبات
+# ====================== التبويبات ======================
 TAB_UNIFIED, TAB_DASH, TAB_MANAGE, TAB_CLIENTS, TAB_REPORT = st.tabs([
     "🧾 الإدخال الموحّد",
     "📈 لوحة المتابعة",
@@ -608,7 +555,6 @@ TAB_UNIFIED, TAB_DASH, TAB_MANAGE, TAB_CLIENTS, TAB_REPORT = st.tabs([
 with TAB_UNIFIED:
     st.subheader("مركز الإدخال اليومي — موحّد")
 
-    # ============ القسم A: اليوميات ============
     with st.expander("A) اليوميات: إنتاج/تسعير + مصروفات + تمويلات", expanded=True):
         with st.form("form_daily", clear_on_submit=False):
             c0, c1, c2 = st.columns(3)
@@ -705,7 +651,6 @@ with TAB_UNIFIED:
 
                 st.success("تم حفظ اليوميات وحركة النقد المرتبطة.")
 
-    # ============ القسم B: توريد العملاء ============
     with st.expander("B) توريد العملاء (صامولي/مدور) نقدي/آجل", expanded=False):
         act = list_clients(active_only=True)
         if act.empty:
@@ -740,7 +685,6 @@ with TAB_UNIFIED:
                                             "cash" if cash_source_for_cash == "خزنة" else "bank")
                     st.success("تم حفظ توريد العميل.")
 
-    # ============ القسم C: سداد عملاء (للآجل) ============
     with st.expander("C) سداد عملاء (للآجل)", expanded=False):
         act2 = list_clients(active_only=True)
         if act2.empty:
@@ -759,7 +703,6 @@ with TAB_UNIFIED:
                                        "cash" if p_src == "خزنة" else "bank", note)
                     st.success("تم حفظ سداد العميل.")
 
-    # ============ القسم D: حركة نقد عامة ============
     with st.expander("D) حركة نقد عامة (خزنة/بنك)", expanded=False):
         with st.form("form_money_move"):
             k1, k2, k3, k4 = st.columns(4)
@@ -772,7 +715,6 @@ with TAB_UNIFIED:
                 add_money_move(mv_date, "cash" if mv_source == "خزنة" else "bank", int(mv_amount), mv_reason or "حركة")
                 st.success("تمت إضافة الحركة.")
 
-    # ============ القسم E: إعداد الإيجار الشهري ============
     with st.expander("E) إعداد الإيجار الشهري (يُوزَّع يوميًا تلقائيًا)", expanded=False):
         with st.form("form_rent"):
             y, m, mr = st.columns(3)
@@ -797,10 +739,10 @@ with TAB_DASH:
         c3.metric("صافي الربح", fmt_i(df_dash["الربح الصافي لليوم"].sum()))
 
         fig = px.line(df_dash, x="dte", y="الربح الصافي لليوم", markers=True, title="اتجاه الربح الصافي")
-        fig.update_layout(xaxis_title="التاريخ", yaxis_title="الربح")
+        fig.update_layout(xaxis_title="التاريخ", yaxis_title="الربح", margin=dict(l=10,r=10,t=60,b=10))
         fig.update_traces(hovertemplate="%{y:.0f}")
         fig.update_yaxes(tickformat="d")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False, "responsive": True})
 
 # ====================== إدارة البيانات ======================
 with TAB_MANAGE:
@@ -819,6 +761,7 @@ with TAB_MANAGE:
             conn = _connect(); cur = conn.cursor()
             cur.execute("DELETE FROM daily WHERE id=?", (sel_id,))
             conn.commit(); conn.close()
+            fetch_daily_df.clear()
             st.success("تم الحذف.")
 
         st.markdown("---")
@@ -842,7 +785,6 @@ with TAB_MANAGE:
             add_money_move(mv_date, "cash" if mv_source == "خزنة" else "bank", int(mv_amount), mv_reason or "حركة")
             st.success("تمت إضافة الحركة.")
 
-        # عرض الأرصدة
         bals = money_balances()
         c1, c2 = st.columns(2)
         c1.metric("💰 رصيد الخزنة", fmt_i(bals.get("cash", 0)))
@@ -852,17 +794,16 @@ with TAB_MANAGE:
 with TAB_CLIENTS:
     st.subheader("📦 إدارة العملاء والتوريد")
 
-    # -------- 1) العملاء --------
     st.markdown("### 1) العملاء")
     new_name = st.text_input("اسم عميل جديد")
     if st.button("➕ إضافة عميل") and new_name.strip():
         add_client(new_name.strip(), True)
+        list_clients.clear()
         st.success("تمت إضافة العميل.")
 
     cldf = list_clients()
     if not cldf.empty:
         st.dataframe(cldf.rename(columns={"id":"ID","name":"العميل","active":"نشط"}), use_container_width=True)
-        # تبديل حالة عميل
         ids_map = {f"{r.id} — {r.name}": int(r.id) for r in cldf.itertuples(index=False)}
         sel_lbl = st.selectbox("تفعيل/إيقاف عميل", options=list(ids_map.keys()))
         if st.button("تبديل الحالة"):
@@ -872,7 +813,6 @@ with TAB_CLIENTS:
 
     st.markdown("---")
 
-    # -------- 2) تسجيل توريد يومي --------
     st.markdown("### 2) تسجيل توريد يومي")
     act = list_clients(active_only=True)
     if act.empty:
@@ -889,7 +829,8 @@ with TAB_CLIENTS:
         p_s = cs2.number_input("الصامولي: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d", key="client_pt_samoli")
         pay_s = cs3.selectbox("طريقة الدفع", ["cash", "credit"], index=0, key="client_pay_method_s")
         if st.button("💾 حفظ توريد الصامولي"):
-            add_client_delivery(d_delivery, int(act.loc[idx, "id"]), "samoli", u_s, p_s, pay_s, "cash" if cash_source_for_cash == "خزنة" else "bank")
+            add_client_delivery(d_delivery, int(act.loc[idx, "id"]), "samoli", u_s, p_s, pay_s,
+                                "cash" if cash_source_for_cash == "خزنة" else "bank")
             st.success("تم حفظ توريد الصامولي.")
 
         st.caption("**توريد مدور**")
@@ -898,12 +839,12 @@ with TAB_CLIENTS:
         p_m = cm2.number_input("المدور: عدد الأرغفة لكل 1000", min_value=0, step=10, format="%d")
         pay_m = cm3.selectbox("طريقة الدفع ", ["cash", "credit"], index=0)
         if st.button("💾 حفظ توريد المدور"):
-            add_client_delivery(d_delivery, int(act.loc[idx, "id"]), "madour", u_m, p_m, pay_m, "cash" if cash_source_for_cash == "خزنة" else "bank")
+            add_client_delivery(d_delivery, int(act.loc[idx, "id"]), "madour", u_m, p_m, pay_m,
+                                "cash" if cash_source_for_cash == "خزنة" else "bank")
             st.success("تم حفظ توريد المدور.")
 
     st.markdown("---")
 
-    # -------- 3) سداد عملاء (للآجل) --------
     st.markdown("### 3) سداد عملاء (للآجل)")
     if act.empty:
         st.info("لا يوجد عملاء نشطون.")
@@ -920,10 +861,7 @@ with TAB_CLIENTS:
 
     st.markdown("---")
 
-    # -------- 4) أداء العملاء والذمم --------
     st.markdown("### 4) أداء العملاء والذمم")
-
-    # جدول توريدات للعملاء من القاعدة
     conn = _connect()
     deliv_df = pd.read_sql_query(
         """
@@ -936,20 +874,18 @@ with TAB_CLIENTS:
     )
     conn.close()
 
-    # ملخص الإيراد لكل عميل
     if deliv_df.empty:
         st.info("لا توجد توريدات مسجلة.")
     else:
         grp = deliv_df.groupby("client_name", as_index=False).agg(
             إجمالي_الوحدات=("units","sum"),
             إجمالي_الإيراد=("revenue","sum"),
-            نقدي=("payment_method", lambda s: int((s=="cash").sum())),
-            آجل=("payment_method", lambda s: int((s=="credit").sum())),
+            نقدي=("payment_method", lambda s: int((s=="cash").count())),
+            آجل=("payment_method", lambda s: int((s=="credit").count())),
         ).sort_values("إجمالي_الإيراد", ascending=False)
         st.markdown("#### ترتيب العملاء حسب الإيراد")
         st.dataframe(grp, use_container_width=True)
 
-        # نمو الإيراد لآخر 14 يوم مقابل الـ 14 السابقة
         cutoff1 = pd.Timestamp(date.today() - timedelta(days=GROWTH_WINDOW_DAYS))
         cutoff0 = pd.Timestamp(date.today() - timedelta(days=2*GROWTH_WINDOW_DAYS))
         recent = deliv_df[deliv_df["dte"] >= cutoff1].groupby("client_name")["revenue"].sum()
@@ -966,26 +902,23 @@ with TAB_CLIENTS:
         st.markdown("#### نمو الإيراد (آخر 14 يوم)")
         st.dataframe(grow_df.sort_values("الفرق", ascending=False), use_container_width=True)
 
-        # اختيار عميل لعرض الاتجاه الزمني
         pick = st.selectbox("اختر عميل لعرض الاتجاه الزمني", options=sorted(set(deliv_df["client_name"])) )
         sub = deliv_df[deliv_df["client_name"] == pick]
         sub_day = sub.groupby("dte", as_index=False)["revenue"].sum()
         line = px.line(sub_day, x="dte", y="revenue", markers=True, title=f"إيراد التوريد — {pick}")
-        line.update_layout(xaxis_title="التاريخ", yaxis_title="الإيراد")
+        line.update_layout(xaxis_title="التاريخ", yaxis_title="الإيراد", margin=dict(l=10,r=10,t=60,b=10))
         line.update_traces(hovertemplate="%{y:.0f}")
         line.update_yaxes(tickformat="d")
-        st.plotly_chart(line, use_container_width=True)
+        st.plotly_chart(line, use_container_width=True, config={"displayModeBar": False, "responsive": True})
 
-    # الذمم (AR)
     ar = fetch_ar_df()
     st.markdown("#### أرصدة الذمم (العملاء الآجل)")
     st.dataframe(ar[["العميل","إيراد آجل","مدفوع","الرصيد"]] if not ar.empty else ar, use_container_width=True)
 
-# --- نسخة احتياطية / استرجاع ---
+# ====================== نسخة احتياطية / استرجاع ======================
 st.markdown("---")
 st.markdown("#### 🧯 نسخة احتياطية / استرجاع قاعدة البيانات")
 
-# تنزيل ملف SQLite الحالي
 if os.path.exists(DB_FILE) and os.path.getsize(DB_FILE) > 0:
     with open(DB_FILE, "rb") as f:
         st.download_button("📥 تنزيل نسخة القاعدة الحالية", f, file_name="bakery_tracker_backup.sqlite",
@@ -993,7 +926,6 @@ if os.path.exists(DB_FILE) and os.path.getsize(DB_FILE) > 0:
 else:
     st.info("لا توجد قاعدة بيانات بعد للتنزيل.")
 
-# رفع نسخة لاسترجاعها
 up = st.file_uploader("📤 ارفع ملف SQLite للاسترجاع (سَيَستبدل القاعدة الحالية)", type=["sqlite","db"])
 if up is not None:
     try:
@@ -1001,15 +933,16 @@ if up is not None:
             os.replace(DB_FILE, DB_FILE + ".bak")
         with open(DB_FILE, "wb") as dst:
             dst.write(up.read())
+        fetch_daily_df.clear()
+        list_clients.clear()
         st.success("تم الاسترجاع بنجاح. أعد تحميل الصفحة لقراءة البيانات.")
     except Exception as e:
-        st.error(f"تعذر الاسترجاع: {e}")
+        st.error(f"تعذّر الاسترجاع: {e}")
 
-# ====================== التقارير (شهري + أسبوعي) ======================
+# ====================== التقارير ======================
 with TAB_REPORT:
     st.subheader("📑 التقارير")
 
-    # -------- تقرير شهري --------
     st.markdown("### 🗓 تقرير شهري")
     yr, mo = st.columns(2)
     R_y = yr.number_input("السنة", min_value=2020, max_value=2100, value=date.today().year, step=1, format="%d", key="report_year")
@@ -1134,9 +1067,7 @@ with TAB_REPORT:
 
     st.markdown("---")
 
-    # -------- تقرير أسبوعي --------
     st.subheader("📆 تقرير أسبوعي")
-
     w_col1, w_col2 = st.columns(2)
     picked_day = w_col1.date_input("اختر يوم داخل الأسبوع", value=date.today(), key="weekly_pick_day")
     show_chart = w_col2.checkbox("عرض مخطط الربح خلال الأسبوع", value=True, key="weekly_show_chart")
@@ -1272,7 +1203,7 @@ with TAB_REPORT:
             dfx = dfw2.loc[mask2, ["dte","الربح الصافي لليوم"]].copy()
             if not dfx.empty:
                 fig_w = px.line(dfx, x="dte", y="الربح الصافي لليوم", markers=True, title="الربح الصافي خلال الأسبوع")
-                fig_w.update_layout(xaxis_title="التاريخ", yaxis_title="الربح الصافي")
+                fig_w.update_layout(xaxis_title="التاريخ", yaxis_title="الربح الصافي", margin=dict(l=10,r=10,t=60,b=10))
                 fig_w.update_traces(hovertemplate="%{y:.0f}")
                 fig_w.update_yaxes(tickformat="d")
-                st.plotly_chart(fig_w, use_container_width=True)
+                st.plotly_chart(fig_w, use_container_width=True, config={"displayModeBar": False, "responsive": True})
