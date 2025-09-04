@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Streamlit Bakery Tracker — إصدار شامل (غير دائم) — نسخة متجاوبة للموبايل
-- واجهة RTL محسّنة للمس، مع تكديس الأعمدة تلقائيًا على الشاشات الصغيرة
-- تعمل على أندرويد/آيفون وجميع المتصفحات الشائعة
-- نفس المنطق المالي والميزات الأصلية + تحسينات عرض الرسوم
+Streamlit Bakery Tracker — شامل (غير دائم) — متجاوب للموبايل
+- RTL محسّن للمس + تكديس أعمدة ثابت على الشاشات الصغيرة
+- مراقبة مخزون الدقيق (مشتريات + متوسط تكلفة مرجّح + مخزون على اليد)
+- الغاز يُضبط شهريًا ويُوزَّع يوميًا تلقائيًا (يمكن تجاوز التوزيع بإدخال يومي)
+- نفس الميزات السابقة (لوحة، عملاء، تقارير، نسخ احتياطي)
 """
 
 import os
@@ -17,12 +18,11 @@ import streamlit as st
 # ====================== إعداد عام ======================
 DB_FILE = "/tmp/bakery_tracker.db"   # تخزين غير دائم
 THOUSAND = 1000
-FUND_LOOKBACK_DAYS = 14
 GROWTH_WINDOW_DAYS = 14
 
 st.set_page_config(page_title="متابعة المخبز — شامل (غير دائم)", page_icon="📊", layout="wide")
 
-# تحسينات مظهر/تجاوب قوية للموبايل (بدون الاعتماد على كلاسات Emotion المتغيرة)
+# ====================== تحسينات المظهر والتجاوب ======================
 st.markdown(
     """
     <style>
@@ -33,32 +33,28 @@ st.markdown(
       --radius-xl: 14px;
       --shadow-soft: 0 6px 18px rgba(0,0,0,.06);
     }
-
-    /* اتجاه RTL وخط مناسب */
-    html, body, [class*="css"] { direction: rtl; font-family: "Tajawal","Segoe UI","Tahoma",Arial,sans-serif; font-size: var(--font-base); }
+    html, body, [class*="css"] {
+      direction: rtl; font-family: "Tajawal","Segoe UI","Tahoma",Arial,sans-serif;
+      font-size: var(--font-base);
+    }
     * { -webkit-tap-highlight-color: rgba(0,0,0,0); }
-
     .block-container { padding-top: 1rem; padding-bottom: 4rem; }
-
     [data-testid="stMetricLabel"] { direction: rtl; }
     .stMarkdown p { line-height: 1.6; }
 
-    /* أزرار ومدخلات كبيرة للمس */
     .stButton>button, .stDownloadButton>button {
       width: 100%; border-radius: var(--radius-xl); padding: .9rem 1.1rem; box-shadow: var(--shadow-soft);
     }
     .stTextInput>div>div>input, .stNumberInput input, .stSelectbox>div>div>div, .stDateInput input {
       border-radius: var(--radius-xl) !important;
     }
-
-    /* صناديق، تبويبات، جداول */
     .stExpander { border: 1px solid #eee; border-radius: var(--radius-xl); box-shadow: var(--shadow-soft); }
     .stTabs [data-baseweb="tab-list"] { gap: .5rem; }
     .stTabs [data-baseweb="tab"] { padding: .6rem .9rem; border-radius: var(--radius-xl); }
     .stDataFrame { border-radius: var(--radius-xl); overflow: hidden; box-shadow: var(--shadow-soft); }
     .small-note { font-size: 12px; opacity: .75; }
 
-    /* —— الأهم: تكديس الأعمدة بطريقة مستقرة —— */
+    /* تكديس أعمدة ثابت */
     @media (max-width: 900px) {
       .block-container { padding-left: .6rem; padding-right: .6rem; }
       [data-testid="column"] { width: 100% !important; flex: 1 1 100% !important; min-width: unset !important; }
@@ -114,12 +110,12 @@ def init_db():
             units_madour INTEGER,
             per_thousand_madour INTEGER,
             flour_bags INTEGER,
-            flour_bag_price INTEGER,
+            flour_bag_price INTEGER,   -- يُستخدم كـ fallback فقط
             flour_extra INTEGER,
             yeast INTEGER,
             salt INTEGER,
             oil INTEGER,
-            gas INTEGER,
+            gas INTEGER,                -- إن لم يُدخل، نستخدم توزيع شهري تلقائي
             electricity INTEGER,
             water INTEGER,
             salaries INTEGER,
@@ -384,12 +380,62 @@ def init_db():
     conn.commit()
     conn.close()
 
+# ==== جداول جديدة: مشتريات الدقيق + غاز شهري ====
+def init_inventory_tables():
+    conn = _connect(); cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS flour_purchases (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        dte TEXT,
+        bags INTEGER,
+        bag_price INTEGER,
+        note TEXT
+    )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_flourp_dte ON flour_purchases(dte)")
+    # منع السالب
+    cur.execute("""
+    CREATE TRIGGER IF NOT EXISTS trg_flourp_nonneg_ins
+    BEFORE INSERT ON flour_purchases
+    BEGIN
+        SELECT CASE
+            WHEN IFNULL(NEW.bags,0) < 0 OR IFNULL(NEW.bag_price,0) < 0
+            THEN RAISE(ABORT,'negative values not allowed in flour_purchases')
+        END;
+    END;
+    """)
+    cur.execute("""
+    CREATE TRIGGER IF NOT EXISTS trg_flourp_nonneg_upd
+    BEFORE UPDATE ON flour_purchases
+    BEGIN
+        SELECT CASE
+            WHEN IFNULL(NEW.bags,0) < 0 OR IFNULL(NEW.bag_price,0) < 0
+            THEN RAISE(ABORT,'negative values not allowed in flour_purchases')
+        END;
+    END;
+    """)
+    conn.commit(); conn.close()
+
+def init_gas_table():
+    conn = _connect(); cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS gas_settings (
+        year INTEGER,
+        month INTEGER,
+        monthly_gas INTEGER,
+        PRIMARY KEY (year, month)
+    )
+    """)
+    conn.commit(); conn.close()
+
 # تهيئة لمرة واحدة لكل جلسة
 if "db_init" not in st.session_state:
     init_db()
+    init_inventory_tables()
+    init_gas_table()
     st.session_state["db_init"] = True
 
-# ====================== دوال بيانات ======================
+# ====================== دوال بيانات أساسية ======================
 def revenue_from_thousand(units: int, per_thousand: int) -> int:
     u = int(units or 0); p = int(per_thousand or 0)
     if p <= 0:
@@ -462,6 +508,73 @@ def insert_daily(row: tuple):
     conn.commit(); conn.close()
     fetch_daily_df.clear()  # تحديث الكاش
 
+# ====================== دوال الدقيق (مشتريات + مخزون + متوسط تكلفة) ======================
+def add_flour_purchase(dte: date, bags: int, bag_price: int, note: str = ""):
+    if int(bags or 0) <= 0 or int(bag_price or 0) <= 0:
+        return
+    conn = _connect(); cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO flour_purchases (dte, bags, bag_price, note) VALUES (?,?,?,?)",
+        (dte.isoformat(), int(bags), int(bag_price), note)
+    )
+    conn.commit(); conn.close()
+
+@st.cache_data(show_spinner=False)
+def flour_stock_on_hand(as_of: date | None = None) -> dict:
+    conn = _connect()
+    params = []
+    q_buy = "SELECT SUM(bags) FROM flour_purchases"
+    if as_of:
+        q_buy += " WHERE date(dte) <= ?"
+        params.append(as_of.isoformat())
+    total_buy = conn.execute(q_buy, params).fetchone()[0] or 0
+
+    params2 = []
+    q_use = "SELECT SUM(flour_bags) FROM daily"
+    if as_of:
+        q_use += " WHERE date(dte) <= ?"
+        params2.append(as_of.isoformat())
+    total_use = conn.execute(q_use, params2).fetchone()[0] or 0
+    conn.close()
+    return {"purchased": int(total_buy), "used": int(total_use), "on_hand": int(total_buy) - int(total_use)}
+
+@st.cache_data(show_spinner=False)
+def avg_bag_cost_until(ts: pd.Timestamp) -> int:
+    conn = _connect()
+    rows = pd.read_sql_query(
+        "SELECT bags, bag_price FROM flour_purchases WHERE date(dte) <= ?",
+        conn, params=(ts.date().isoformat(),)
+    )
+    conn.close()
+    if rows.empty or int(rows["bags"].sum()) == 0:
+        return 0
+    weighted = (rows["bags"] * rows["bag_price"]).sum()
+    return int(round(weighted / rows["bags"].sum()))
+
+# ====================== غاز شهري (توزيع يومي تلقائي) ======================
+def set_monthly_gas(year: int, month: int, amount: int):
+    conn = _connect(); cur = conn.cursor()
+    cur.execute("""
+    INSERT INTO gas_settings(year, month, monthly_gas)
+    VALUES(?,?,?)
+    ON CONFLICT(year,month) DO UPDATE SET monthly_gas=excluded.monthly_gas
+    """, (int(year), int(month), int(amount)))
+    conn.commit(); conn.close()
+
+def get_monthly_gas(year: int, month: int) -> int:
+    conn = _connect(); cur = conn.cursor()
+    row = cur.execute("SELECT monthly_gas FROM gas_settings WHERE year=? AND month=?", (year, month)).fetchone()
+    conn.close()
+    return int(row[0]) if row and row[0] is not None else 0
+
+@st.cache_data(show_spinner=False)
+def gas_per_day_for(dt: pd.Timestamp) -> int:
+    y, m = dt.year, dt.month
+    monthly = get_monthly_gas(y, m)
+    dim = days_in_month(y, m)
+    return int(round(monthly / dim)) if dim else 0
+
+# ====================== تحميل البيانات المركّبة ======================
 @st.cache_data(show_spinner=False)
 def fetch_daily_df() -> pd.DataFrame:
     conn = _connect()
@@ -470,12 +583,33 @@ def fetch_daily_df() -> pd.DataFrame:
     if df.empty:
         return df
 
+    # الإيرادات
     df["إيراد الصامولي"] = [revenue_from_thousand(u, p) for u, p in zip(df["units_samoli"], df["per_thousand_samoli"])]
     df["إيراد المدور"]   = [revenue_from_thousand(u, p) for u, p in zip(df["units_madour"], df["per_thousand_madour"])]
     df["إجمالي المبيعات"] = (df["إيراد الصامولي"].fillna(0) + df["إيراد المدور"].fillna(0)).astype(int)
 
-    df["تكلفة الدقيق"] = (df["flour_bags"].fillna(0).astype(int) * df["flour_bag_price"].fillna(0).astype(int)).astype(int)
+    # تكلفة الدقيق = عدد الجوالات المستهلكة × متوسط تكلفة الجوال المرجّح حتى تاريخ اليوم
+    avg_costs = []
+    bags_series = df["flour_bags"].fillna(0).astype(int)
+    for ts, bags in zip(df["dte"], bags_series):
+        if bags and bags > 0:
+            avg_costs.append(bags * avg_bag_cost_until(pd.Timestamp(ts)))
+        else:
+            avg_costs.append(0)
+    # fallback: لو 0 ولم تُسجّل مشتريات بعد، استخدم سعر اليوم المدخل إن وُجد
+    fallback = (bags_series * df["flour_bag_price"].fillna(0).astype(int))
+    df["تكلفة الدقيق"] = (pd.Series(avg_costs, index=df.index).where(lambda s: s > 0, fallback)).astype(int)
+
+    # إيجار يومي
     df["إيجار يومي"] = df["dte"].apply(lambda ts: rent_per_day_for(pd.Timestamp(ts)))
+
+    # غاز يومي موزّع (يحترم إدخال يومي إن وُجد)
+    if "gas" not in df.columns:
+        df["gas"] = 0
+    df["gas"] = df.apply(
+        lambda r: int(r["gas"]) if int(r["gas"] or 0) > 0 else gas_per_day_for(pd.Timestamp(r["dte"])),
+        axis=1
+    ).astype(int)
 
     expense_cols = [
         "تكلفة الدقيق","flour_extra","yeast","salt","oil","gas","electricity","water",
@@ -484,6 +618,7 @@ def fetch_daily_df() -> pd.DataFrame:
     for c in expense_cols:
         if c not in df.columns:
             df[c] = 0
+
     df["الإجمالي اليومي للمصروفات"] = df[expense_cols].fillna(0).astype(int).sum(axis=1).astype(int)
     df["الربح الصافي لليوم"] = (df["إجمالي المبيعات"].fillna(0) - df["الإجمالي اليومي للمصروفات"].fillna(0)).astype(int)
 
@@ -492,6 +627,7 @@ def fetch_daily_df() -> pd.DataFrame:
 
     return df
 
+# ====================== عملاء ======================
 def add_client(name: str, active: bool = True):
     conn = _connect(); cur = conn.cursor()
     cur.execute("INSERT OR IGNORE INTO clients(name,active) VALUES(?,?)", (name.strip(), 1 if active else 0))
@@ -572,7 +708,7 @@ with TAB_UNIFIED:
             c0, c1, c2 = st.columns(3)
             dte = c0.date_input("التاريخ", value=date.today(), key="in_date")
             flour_bags = c1.number_input("جوالات الدقيق المستهلكة", min_value=0, step=1, format="%d")
-            flour_bag_price = c2.number_input("سعر جوال الدقيق", min_value=0, step=1, format="%d")
+            flour_bag_price = c2.number_input("سعر جوال الدقيق (اختياري كـ fallback)", min_value=0, step=1, format="%d")
 
             st.markdown("**الإنتاج والتسعير بالألف**")
             s1, s2, s3, s4 = st.columns(4)
@@ -587,7 +723,7 @@ with TAB_UNIFIED:
             yeast = e2.number_input("خميرة", min_value=0, step=1, format="%d")
             salt = e3.number_input("ملح", min_value=0, step=1, format="%d")
             oil = e4.number_input("زيت/سمن", min_value=0, step=1, format="%d")
-            gas = e5.number_input("غاز", min_value=0, step=1, format="%d")
+            gas_manual = e5.number_input("غاز (اتركه 0 لاستخدام التوزيع الشهري تلقائيًا)", min_value=0, step=1, format="%d")
 
             e6, e7, e8, e9, e10 = st.columns(5)
             electricity = e6.number_input("كهرباء", min_value=0, step=1, format="%d")
@@ -631,7 +767,7 @@ with TAB_UNIFIED:
                     int(units_samoli or 0), int(per_thousand_samoli or 0),
                     int(units_madour or 0), int(per_thousand_madour or 0),
                     int(flour_bags or 0), int(flour_bag_price or 0),
-                    int(flour_extra or 0), int(yeast or 0), int(salt or 0), int(oil or 0), int(gas or 0),
+                    int(flour_extra or 0), int(yeast or 0), int(salt or 0), int(oil or 0), int(gas_manual or 0),
                     int(electricity or 0), int(water or 0), int(salaries or 0), int(maintenance or 0),
                     int(petty or 0), int(other_exp or 0), int(ice or 0), int(bags or 0), int(daily_meal or 0),
                     int(owner_withdrawal or 0), int(owner_repayment or 0), int(owner_injection or 0), int(funding or 0),
@@ -640,7 +776,7 @@ with TAB_UNIFIED:
                 insert_daily(row)
 
                 total_daily_oper_exp = sum([
-                    int(flour_extra or 0), int(yeast or 0), int(salt or 0), int(oil or 0), int(gas or 0),
+                    int(flour_extra or 0), int(yeast or 0), int(salt or 0), int(oil or 0), int(gas_manual or 0),
                     int(electricity or 0), int(water or 0), int(salaries or 0), int(maintenance or 0),
                     int(petty or 0), int(other_exp or 0), int(ice or 0), int(bags or 0), int(daily_meal or 0),
                 ])
@@ -661,6 +797,7 @@ with TAB_UNIFIED:
                     add_money_move(dte, "cash" if funding_src == "خزنة" else "bank",
                                    int(funding), "تحويلات أخرى")
 
+                fetch_daily_df.clear()
                 st.success("تم حفظ اليوميات وحركة النقد المرتبطة.")
 
     with st.expander("B) توريد العملاء (صامولي/مدور) نقدي/آجل", expanded=False):
@@ -736,7 +873,18 @@ with TAB_UNIFIED:
             subE = st.form_submit_button("💾 حفظ الإيجار")
             if subE:
                 set_monthly_rent(int(yy), int(mm), int(monthly_rent))
+                rent_per_day_for.clear()
                 st.success("تم حفظ الإيجار الشهري.")
+
+    with st.expander("F) إعداد الغاز الشهري (يُوزَّع يوميًا تلقائيًا)", expanded=False):
+        gy, gm, ga = st.columns(3)
+        gas_y = gy.number_input("السنة", min_value=2020, max_value=2100, value=date.today().year, step=1, format="%d")
+        gas_m = gm.number_input("الشهر", min_value=1, max_value=12, value=date.today().month, step=1, format="%d")
+        gas_amt = ga.number_input("قيمة الغاز للشهر", min_value=0, step=1, format="%d")
+        if st.button("💾 حفظ الغاز الشهري"):
+            set_monthly_gas(int(gas_y), int(gas_m), int(gas_amt))
+            gas_per_day_for.clear()
+            st.success("تم حفظ قيمة الغاز لهذا الشهر.")
 
 # ====================== لوحة المتابعة ======================
 with TAB_DASH:
@@ -782,8 +930,9 @@ with TAB_MANAGE:
         yy = y.number_input("السنة", min_value=2020, max_value=2100, value=date.today().year, step=1, format="%d", key="manage_rent_y")
         mm = m.number_input("الشهر", min_value=1, max_value=12, value=date.today().month, step=1, format="%d", key="manage_rent_m")
         monthly_rent = mr.number_input("الإيجار الشهري", min_value=0, step=1, format="%d", key="manage_rent_amt")
-        if st.button("💾 حفظ الإيجار"):
+        if st.button("💾 حفظ الإيجار", key="manage_rent_btn"):
             set_monthly_rent(int(yy), int(mm), int(monthly_rent))
+            rent_per_day_for.clear()
             st.success("تم حفظ الإيجار الشهري لهذا الشهر.")
 
         st.markdown("---")
@@ -793,7 +942,7 @@ with TAB_MANAGE:
         mv_source = k2.selectbox("المصدر", ["خزنة", "بنك"], index=0, key="manage_mv_source")
         mv_amount = k3.number_input("المبلغ (+داخل / -خارج)", value=0, step=1, format="%d")
         mv_reason = k4.text_input("السبب", value="حركة يدوية", key="manage_mv_reason")
-        if st.button("➕ إضافة حركة نقد"):
+        if st.button("➕ إضافة حركة نقد", key="manage_mv_btn"):
             add_money_move(mv_date, "cash" if mv_source == "خزنة" else "bank", int(mv_amount), mv_reason or "حركة")
             st.success("تمت إضافة الحركة.")
 
@@ -801,6 +950,44 @@ with TAB_MANAGE:
         c1, c2 = st.columns(2)
         c1.metric("💰 رصيد الخزنة", fmt_i(bals.get("cash", 0)))
         c2.metric("🏦 رصيد البنك", fmt_i(bals.get("bank", 0)))
+
+        st.markdown("---")
+        st.markdown("#### 📦 مخزون الدقيق — مشتريات وإجمالي على اليد")
+        c1, c2, c3, c4 = st.columns(4)
+        p_date = c1.date_input("تاريخ الشراء", value=date.today(), key="flour_buy_date")
+        p_bags = c2.number_input("عدد الجوالات", min_value=0, step=1, format="%d", key="flour_buy_bags")
+        p_price = c3.number_input("سعر الجوال", min_value=0, step=1, format="%d", key="flour_buy_price")
+        p_note = c4.text_input("ملاحظة", value="", key="flour_buy_note")
+        if st.button("➕ إضافة شراء دقيق", key="flour_buy_btn"):
+            add_flour_purchase(p_date, p_bags, p_price, p_note)
+            flour_stock_on_hand.clear(); avg_bag_cost_until.clear(); fetch_daily_df.clear()
+            st.success("تم تسجيل شراء الدقيق.")
+
+        stock = flour_stock_on_hand()
+        s1, s2, s3 = st.columns(3)
+        s1.metric("إجمالي مشتريات الجوالات", stock["purchased"])
+        s2.metric("إجمالي الجوالات المستهلكة", stock["used"])
+        s3.metric("المخزون على اليد الآن", stock["on_hand"])
+
+        conn = _connect()
+        fp = pd.read_sql_query(
+            "SELECT dte AS التاريخ, bags AS الجوالات, bag_price AS سعر_الجوال, note AS ملاحظة FROM flour_purchases ORDER BY dte DESC, id DESC",
+            conn
+        )
+        conn.close()
+        if not fp.empty:
+            st.dataframe(fp, use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("#### 🧯 إعداد الغاز الشهري (يُوزَّع يوميًا تلقائيًا)")
+        gy, gm, ga = st.columns(3)
+        gas_y = gy.number_input("السنة", min_value=2020, max_value=2100, value=date.today().year, step=1, format="%d", key="gas_y_manage")
+        gas_m = gm.number_input("الشهر", min_value=1, max_value=12, value=date.today().month, step=1, format="%d", key="gas_m_manage")
+        gas_amt = ga.number_input("قيمة الغاز للشهر", min_value=0, step=1, format="%d", key="gas_amt_manage")
+        if st.button("💾 حفظ الغاز الشهري", key="gas_save_manage"):
+            set_monthly_gas(int(gas_y), int(gas_m), int(gas_amt))
+            gas_per_day_for.clear(); fetch_daily_df.clear()
+            st.success("تم حفظ قيمة الغاز لهذا الشهر.")
 
 # ====================== العملاء والتوريد + الذمم ======================
 with TAB_CLIENTS:
@@ -947,6 +1134,8 @@ if up is not None:
             dst.write(up.read())
         fetch_daily_df.clear()
         list_clients.clear()
+        flour_stock_on_hand.clear()
+        avg_bag_cost_until.clear()
         st.success("تم الاسترجاع بنجاح. أعد تحميل الصفحة لقراءة البيانات.")
     except Exception as e:
         st.error(f"تعذّر الاسترجاع: {e}")
@@ -1023,8 +1212,8 @@ with TAB_REPORT:
                             "units_madour":"إنتاج المدور (عدد)",
                             "per_thousand_madour":"المدور: عدد الأرغفة لكل 1000",
                             "flour_bags":"جوالات الدقيق",
-                            "flour_bag_price":"سعر جوال الدقيق",
-                            "flour_extra":"دقيق إضافي","yeast":"خميرة","salt":"ملح","oil":"زيت/سمن","gas":"غاز",
+                            "flour_bag_price":"سعر جوال الدقيق (fallback)",
+                            "flour_extra":"دقيق إضافي","yeast":"خميرة","salt":"ملح","oil":"زيت/سمن","gas":"غاز (يومي/موزّع)",
                             "electricity":"كهرباء","water":"مياه","salaries":"رواتب","maintenance":"صيانة","petty":"نثريات","other_exp":"مصاريف أخرى",
                             "ice":"ثلج","bags":"أكياس","daily_meal":"فطور يومي",
                             "owner_withdrawal":"سلفة","owner_repayment":"رد سلفة","owner_injection":"تمويل","funding":"تحويلات أخرى",
@@ -1056,13 +1245,14 @@ with TAB_REPORT:
                         else:
                             pd.DataFrame(columns=["لا توجد مدفوعات عملاء في هذا الشهر"]).to_excel(writer, sheet_name="سداد_العملاء", index=False)
 
+                        # أرصدة الذمم الحالية
                         ar_month = fetch_ar_df()
                         ar_month.to_excel(writer, sheet_name="الذمم", index=False)
 
                         if not money.empty:
                             money_out = money.copy()
                             money_out.rename(columns={"dte":"التاريخ","source":"المصدر","amount":"المبلغ","reason":"السبب"}, inplace=True)
-                            money_out["المبلغ"] = money_out["المبلغ"].fillna(0).astype(int)
+                            money_out["المبلغ"] = pd.to_numeric(money_out["المبلغ"], errors="coerce").fillna(0).astype(int)
                             money_out.to_excel(writer, sheet_name="حركة_النقد", index=False)
                         else:
                             pd.DataFrame(columns=["لا توجد حركات نقدية في هذا الشهر"]).to_excel(writer, sheet_name="حركة_النقد", index=False)
@@ -1157,8 +1347,8 @@ with TAB_REPORT:
                             "units_madour":"إنتاج المدور (عدد)",
                             "per_thousand_madour":"المدور: عدد الأرغفة لكل 1000",
                             "flour_bags":"جوالات الدقيق",
-                            "flour_bag_price":"سعر جوال الدقيق",
-                            "flour_extra":"دقيق إضافي","yeast":"خميرة","salt":"ملح","oil":"زيت/سمن","gas":"غاز",
+                            "flour_bag_price":"سعر جوال الدقيق (fallback)",
+                            "flour_extra":"دقيق إضافي","yeast":"خميرة","salt":"ملح","oil":"زيت/سمن","gas":"غاز (يومي/موزّع)",
                             "electricity":"كهرباء","water":"مياه","salaries":"رواتب","maintenance":"صيانة","petty":"نثريات","other_exp":"مصاريف أخرى",
                             "ice":"ثلج","bags":"أكياس","daily_meal":"فطور يومي",
                             "owner_withdrawal":"سلفة","owner_repayment":"رد سلفة","owner_injection":"تمويل","funding":"تحويلات أخرى",
@@ -1193,8 +1383,6 @@ with TAB_REPORT:
                         if not money_w.empty:
                             money_out = money_w.copy()
                             money_out.rename(columns={"dte":"التاريخ","source":"المصدر","amount":"المبلغ","reason":"السبب"}, inplace=True)
-                            money_out["المبلغ"] = money_out["المبلغ"].fillنا(0).astype(int) if hasattr(money_out["amount"], "fillna") else money_out["amount"]
-                            # التصحيح: السطر أعلاه لضمان التحويل للعدد صحيحًا حتى لو عمود amount ليس Series عددية
                             money_out["المبلغ"] = pd.to_numeric(money_out["المبلغ"], errors="coerce").fillna(0).astype(int)
                             money_out.to_excel(writer, sheet_name="حركة_النقد", index=False)
                         else:
