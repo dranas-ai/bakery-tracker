@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 Streamlit Bakery Tracker — إصدار شامل (غير دائم) — نسخة متجاوبة للموبايل
-- تعمل بسلاسة على متصفحات الهواتف (أندرويد/آيفون) والكمبيوتر
 - واجهة RTL محسّنة للمس، مع تكديس الأعمدة تلقائيًا على الشاشات الصغيرة
-- نفس المنطق المالي والميزات الأصلية
+- تعمل على أندرويد/آيفون وجميع المتصفحات الشائعة
+- نفس المنطق المالي والميزات الأصلية + تحسينات عرض الرسوم
 """
 
 import os
@@ -20,9 +20,9 @@ THOUSAND = 1000
 FUND_LOOKBACK_DAYS = 14
 GROWTH_WINDOW_DAYS = 14
 
-st.set_page_config(page_title="متابعة المخبز — شامل (غير دائم)", layout="wide")
+st.set_page_config(page_title="متابعة المخبز — شامل (غير دائم)", page_icon="📊", layout="wide")
 
-# تحسينات مظهر/تجاوب قوية للموبايل
+# تحسينات مظهر/تجاوب قوية للموبايل (بدون الاعتماد على كلاسات Emotion المتغيرة)
 st.markdown(
     """
     <style>
@@ -33,30 +33,42 @@ st.markdown(
       --radius-xl: 14px;
       --shadow-soft: 0 6px 18px rgba(0,0,0,.06);
     }
-    html, body, [class*="css"] { direction: rtl; font-family: "Tajawal","Segoe UI","Tahoma",Arial,sans-serif; }
+
+    /* اتجاه RTL وخط مناسب */
+    html, body, [class*="css"] { direction: rtl; font-family: "Tajawal","Segoe UI","Tahoma",Arial,sans-serif; font-size: var(--font-base); }
     * { -webkit-tap-highlight-color: rgba(0,0,0,0); }
+
     .block-container { padding-top: 1rem; padding-bottom: 4rem; }
+
     [data-testid="stMetricLabel"] { direction: rtl; }
-    .stButton>button, .stDownloadButton>button { width: 100%; border-radius: var(--radius-xl); padding: .8rem 1rem; box-shadow: var(--shadow-soft); }
+    .stMarkdown p { line-height: 1.6; }
+
+    /* أزرار ومدخلات كبيرة للمس */
+    .stButton>button, .stDownloadButton>button {
+      width: 100%; border-radius: var(--radius-xl); padding: .9rem 1.1rem; box-shadow: var(--shadow-soft);
+    }
     .stTextInput>div>div>input, .stNumberInput input, .stSelectbox>div>div>div, .stDateInput input {
       border-radius: var(--radius-xl) !important;
     }
+
+    /* صناديق، تبويبات، جداول */
     .stExpander { border: 1px solid #eee; border-radius: var(--radius-xl); box-shadow: var(--shadow-soft); }
     .stTabs [data-baseweb="tab-list"] { gap: .5rem; }
     .stTabs [data-baseweb="tab"] { padding: .6rem .9rem; border-radius: var(--radius-xl); }
     .stDataFrame { border-radius: var(--radius-xl); overflow: hidden; box-shadow: var(--shadow-soft); }
     .small-note { font-size: 12px; opacity: .75; }
 
-    /* تكديس الأعمدة على الشاشات الصغيرة وتحسين اللمس */
+    /* —— الأهم: تكديس الأعمدة بطريقة مستقرة —— */
     @media (max-width: 900px) {
       .block-container { padding-left: .6rem; padding-right: .6rem; }
-      .st-emotion-cache-ocqkz7, .st-emotion-cache-1y4p8pa { gap: .5rem !important; }
+      [data-testid="column"] { width: 100% !important; flex: 1 1 100% !important; min-width: unset !important; }
+      [data-testid="stHorizontalBlock"] { gap: .6rem !important; }
       .stMetric { margin-bottom: .5rem; }
       .stPlotlyChart { margin-top: .5rem; }
       .stTabs [data-baseweb="tab"] { font-size: 14px; }
     }
     @media (max-width: 600px) {
-      .stButton>button, .stDownloadButton>button { font-size: 15px; padding: .9rem 1.1rem; }
+      .stButton>button, .stDownloadButton>button { font-size: 15px; padding: .95rem 1.1rem; }
       .stExpander { margin-bottom: .6rem; }
     }
     </style>
@@ -739,7 +751,7 @@ with TAB_DASH:
         c3.metric("صافي الربح", fmt_i(df_dash["الربح الصافي لليوم"].sum()))
 
         fig = px.line(df_dash, x="dte", y="الربح الصافي لليوم", markers=True, title="اتجاه الربح الصافي")
-        fig.update_layout(xaxis_title="التاريخ", yaxis_title="الربح", margin=dict(l=10,r=10,t=60,b=10))
+        fig.update_layout(autosize=True, xaxis_title="التاريخ", yaxis_title="الربح", margin=dict(l=10,r=10,t=60,b=10))
         fig.update_traces(hovertemplate="%{y:.0f}")
         fig.update_yaxes(tickformat="d")
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False, "responsive": True})
@@ -906,7 +918,7 @@ with TAB_CLIENTS:
         sub = deliv_df[deliv_df["client_name"] == pick]
         sub_day = sub.groupby("dte", as_index=False)["revenue"].sum()
         line = px.line(sub_day, x="dte", y="revenue", markers=True, title=f"إيراد التوريد — {pick}")
-        line.update_layout(xaxis_title="التاريخ", yaxis_title="الإيراد", margin=dict(l=10,r=10,t=60,b=10))
+        line.update_layout(autosize=True, xaxis_title="التاريخ", yaxis_title="الإيراد", margin=dict(l=10,r=10,t=60,b=10))
         line.update_traces(hovertemplate="%{y:.0f}")
         line.update_yaxes(tickformat="d")
         st.plotly_chart(line, use_container_width=True, config={"displayModeBar": False, "responsive": True})
@@ -1181,7 +1193,9 @@ with TAB_REPORT:
                         if not money_w.empty:
                             money_out = money_w.copy()
                             money_out.rename(columns={"dte":"التاريخ","source":"المصدر","amount":"المبلغ","reason":"السبب"}, inplace=True)
-                            money_out["المبلغ"] = money_out["المبلغ"].fillna(0).astype(int)
+                            money_out["المبلغ"] = money_out["المبلغ"].fillنا(0).astype(int) if hasattr(money_out["amount"], "fillna") else money_out["amount"]
+                            # التصحيح: السطر أعلاه لضمان التحويل للعدد صحيحًا حتى لو عمود amount ليس Series عددية
+                            money_out["المبلغ"] = pd.to_numeric(money_out["المبلغ"], errors="coerce").fillna(0).astype(int)
                             money_out.to_excel(writer, sheet_name="حركة_النقد", index=False)
                         else:
                             pd.DataFrame(columns=["لا توجد حركات نقدية في هذا الأسبوع"]).to_excel(writer, sheet_name="حركة_النقد", index=False)
@@ -1203,7 +1217,7 @@ with TAB_REPORT:
             dfx = dfw2.loc[mask2, ["dte","الربح الصافي لليوم"]].copy()
             if not dfx.empty:
                 fig_w = px.line(dfx, x="dte", y="الربح الصافي لليوم", markers=True, title="الربح الصافي خلال الأسبوع")
-                fig_w.update_layout(xaxis_title="التاريخ", yaxis_title="الربح الصافي", margin=dict(l=10,r=10,t=60,b=10))
+                fig_w.update_layout(autosize=True, xaxis_title="التاريخ", yaxis_title="الربح الصافي", margin=dict(l=10,r=10,t=60,b=10))
                 fig_w.update_traces(hovertemplate="%{y:.0f}")
                 fig_w.update_yaxes(tickformat="d")
                 st.plotly_chart(fig_w, use_container_width=True, config={"displayModeBar": False, "responsive": True})
