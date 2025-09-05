@@ -39,6 +39,7 @@ def _resolve_db_path():
 
 DB_FILE, DB_PERSISTENT = _resolve_db_path()  # محاولة حفظ دائم
 FUND_LOOKBACK_DAYS = 30  # نافذة تمويل آخر X يوم — عدلناها إلى 30 يوم
+WORKING_DAYS_PER_MONTH = 26  # عدد أيام التشغيل في الشهر (لا نعمل الجمعة) 
 
 # واجهة وتهيئة للموبايل + RTL
 st.set_page_config(page_title="متابعة المخبز", layout="wide")
@@ -205,11 +206,11 @@ def fetch_daily_df() -> pd.DataFrame:
     if dfm is not None and not dfm.empty:
         m = dfm.copy()
         m["month"] = pd.to_datetime(m["month"])  # YYYY-MM-01
-        # تقسيم ثابت على 30 يوم كما طلبت + توزيع البواقي على آخر يوم مُسجّل في الشهر
-        m["per_day_gas"] = (m["gas"].fillna(0).astype(int) // 30).astype(int)
-        m["per_day_rent"] = (m["rent"].fillna(0).astype(int) // 30).astype(int)
-        m["rem_gas"] = (m["gas"].fillna(0).astype(int) % 30).astype(int)
-        m["rem_rent"] = (m["rent"].fillna(0).astype(int) % 30).astype(int)
+        # تقسيم ثابت على 26 يوم كما طلبت + توزيع البواقي على آخر يوم مُسجّل في الشهر
+        m["per_day_gas"] = (m["gas"].fillna(0).astype(int) // WORKING_DAYS_PER_MONTH).astype(int)
+        m["per_day_rent"] = (m["rent"].fillna(0).astype(int) // WORKING_DAYS_PER_MONTH).astype(int)
+        m["rem_gas"] = (m["gas"].fillna(0).astype(int) % WORKING_DAYS_PER_MONTH).astype(int)
+        m["rem_rent"] = (m["rent"].fillna(0).astype(int) % WORKING_DAYS_PER_MONTH).astype(int)
         df = df.merge(
             m[["month","per_day_gas","per_day_rent","rem_gas","rem_rent"]],
             on="month", how="left"
@@ -415,7 +416,7 @@ with tab_dash:
     if df.empty:
         st.info("لا توجد بيانات بعد. أضف أول سجل من تبويب الإدخال.")
     else:
-        # ملخصات يومية شاملة التوزيع
+        # ملخصات إجمالية (شاملة التوزيع اليومي للغاز/الإيجار)
         total_revenue = int(df["إجمالي المبيعات"].sum())
         total_exp_daily = int(df["الإجمالي اليومي للمصروفات (شامل الموزع)"].sum())
         total_profit_daily = int(total_revenue - total_exp_daily)
@@ -425,6 +426,14 @@ with tab_dash:
         # تمويل آخر 30 يوم
         recent_cutoff = pd.Timestamp(date.today() - timedelta(days=FUND_LOOKBACK_DAYS))
         recent_fund = int(df.loc[df["dte"] >= recent_cutoff, "funding"].fillna(0).sum())
+
+        # ===================== بطاقات MTD =====================
+        today_ts = pd.Timestamp(date.today())
+        month_start = today_ts.replace(day=1).normalize()
+        df_mtd = df[(df["dte"] >= month_start) & (df["dte"] <= today_ts)].copy()
+        mtd_revenue = int(df_mtd["إجمالي المبيعات"].sum()) if not df_mtd.empty else 0
+        mtd_exp = int(df_mtd["الإجمالي اليومي للمصروفات (شامل الموزع)"].sum()) if not df_mtd.empty else 0
+        mtd_profit = int(mtd_revenue - mtd_exp)
 
         c1,c2,c3,c4 = st.columns(4)
         c1.metric("إجمالي المبيعات", f"{total_revenue:,}")
@@ -437,9 +446,28 @@ with tab_dash:
         status = "المخبز يغطي نفسه" if (total_profit_daily >= 0 and recent_fund == 0) else "المخبز يعتمد على التمويل الذاتي"
         c6.metric("⚖️ حالة المخبز", status)
 
-        st.markdown("### الربح الصافي اليومي (شامل توزيع الغاز/الإيجار)")
-        fig = px.line(df, x="dte", y="الربح الصافي لليوم", markers=True)
-        fig.update_layout(xaxis_title="التاريخ", yaxis_title=f"الربح الصافي ({CURRENCY})")
+        c7,c8,c9 = st.columns(3)
+        c7.metric("مبيعات MTD", f"{mtd_revenue:,}")
+        c8.metric("مصروفات MTD", f"{mtd_exp:,}")
+        c9.metric("صافي ربح MTD", f"{mtd_profit:,}")
+
+        # ===================== الرسم: يومي / تراكمي (MTD) =====================
+        st.markdown("### الربح الصافي — يومي / تراكمي (MTD)")
+        mode = st.radio("اختر النمط", ["يومي","تراكمي (MTD)"], horizontal=True, index=0)
+        if mode == "يومي":
+            fig = px.line(df.sort_values("dte"), x="dte", y="الربح الصافي لليوم", markers=True)
+            y_title = f"الربح الصافي ({CURRENCY})"
+        else:
+            if df_mtd.empty:
+                st.info("لا توجد بيانات في هذا الشهر لعرض التراكمي. سيتم عرض الرسم اليومي.")
+                fig = px.line(df.sort_values("dte"), x="dte", y="الربح الصافي لليوم", markers=True)
+                y_title = f"الربح الصافي ({CURRENCY})"
+            else:
+                df_plot = df_mtd.sort_values("dte").copy()
+                df_plot["الربح التراكمي (MTD)"] = df_plot["الربح الصافي لليوم"].cumsum()
+                fig = px.line(df_plot, x="dte", y="الربح التراكمي (MTD)", markers=True)
+                y_title = f"الربح التراكمي (MTD) ({CURRENCY})"
+        fig.update_layout(xaxis_title="التاريخ", yaxis_title=y_title)
         st.plotly_chart(fig, use_container_width=True)
 
         st.markdown("### ملخص الإيرادات مقابل المصروفات")
