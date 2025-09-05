@@ -1,14 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Streamlit Bakery Tracker — شامل (حفظ دائم) — متجاوب للموبايل
-- RTL محسّن للمس + تكديس أعمدة ثابت على الشاشات الصغيرة
-- مراقبة مخزون الدقيق (مشتريات + متوسط تكلفة مرجّح + مخزون على اليد)
-- الغاز يُضبط شهريًا ويُوزَّع يوميًا تلقائيًا (يمكن تجاوز التوزيع بإدخال يومي)
-- نفس الميزات السابقة (لوحة، عملاء، تقارير، نسخ احتياطي/استرجاع)
-- تخزين دائم بمسار ذكي:
-    1) إن وُضع BAKERY_DB_PATH نستخدمه
-    2) وإلا ~/.bakery_tracker/bakery_tracker.sqlite
-    3) ولو فشل المنزل: ./data/bakery_tracker.sqlite داخل المشروع
+نظام متابعة المخبز — حفظ دائم — متجاوب للموبايل
 """
 
 import os
@@ -20,93 +12,45 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-# ====================== إعداد عام (حفظ دائم) ======================
+# ====================== مسار قاعدة البيانات (حفظ دائم) ======================
 def _default_db_path() -> str:
-    """إرجاع مسار قاعدة بيانات دائم مع معالجة صلاحيات/بيئات مختلفة."""
     env = os.getenv("BAKERY_DB_PATH", "").strip()
     if env:
         p = Path(env).expanduser()
         p.parent.mkdir(parents=True, exist_ok=True)
         return str(p)
-    # محاولة داخل مجلد المستخدم
     try:
         home_db_dir = Path.home() / ".bakery_tracker"
         home_db_dir.mkdir(parents=True, exist_ok=True)
         return str(home_db_dir / "bakery_tracker.sqlite")
     except Exception:
         pass
-    # خط رجعة داخل المشروع
     cwd_dir = Path.cwd() / "data"
     cwd_dir.mkdir(parents=True, exist_ok=True)
     return str(cwd_dir / "bakery_tracker.sqlite")
 
-DB_FILE = _default_db_path()   # حفظ دائم
+DB_FILE = _default_db_path()
 THOUSAND = 1000
 GROWTH_WINDOW_DAYS = 14
 
 st.set_page_config(page_title="متابعة المخبز — شامل (حفظ دائم)", page_icon="📊", layout="wide")
 
-# ====================== تحسينات المظهر والتجاوب ======================
+# ====================== مظهر بسيط متجاوب ======================
 st.markdown(
     """
     <style>
-    :root {
-      --touch-pad: 12px;
-      --font-base: 15px;
-      --font-lg: 17px;
-      --radius-xl: 14px;
-      --shadow-soft: 0 6px 18px rgba(0,0,0,.06);
-    }
-    html, body, [class*="css"] {
-      direction: rtl; font-family: "Tajawal","Segoe UI","Tahoma",Arial,sans-serif;
-      font-size: var(--font-base);
-    }
-    * { -webkit-tap-highlight-color: rgba(0,0,0,0); }
-    .block-container { padding-top: 1rem; padding-bottom: 4rem; }
-    [data-testid="stMetricLabel"] { direction: rtl; }
-    .stMarkdown p { line-height: 1.6; }
-
-    .stButton>button, .stDownloadButton>button {
-      width: 100%; border-radius: var(--radius-xl); padding: .9rem 1.1rem; box-shadow: var(--shadow-soft);
-    }
-    .stTextInput>div>div>input, .stNumberInput input, .stSelectbox>div>div>div, .stDateInput input {
-      border-radius: var(--radius-xl) !important;
-    }
-    .stExpander { border: 1px solid #eee; border-radius: var(--radius-xl); box-shadow: var(--shadow-soft); }
-    .stTabs [data-baseweb="tab-list"] { gap: .5rem; }
-    .stTabs [data-baseweb="tab"] { padding: .6rem .9rem; border-radius: var(--radius-xl); }
-    .stDataFrame { border-radius: var(--radius-xl); overflow: hidden; box-shadow: var(--shadow-soft); }
-    .small-note { font-size: 12px; opacity: .75; }
-
-    /* تكديس أعمدة ثابت */
-    @media (max-width: 900px) {
-      .block-container { padding-left: .6rem; padding-right: .6rem; }
-      [data-testid="column"] { width: 100% !important; flex: 1 1 100% !important; min-width: unset !important; }
-      [data-testid="stHorizontalBlock"] { gap: .6rem !important; }
-      .stMetric { margin-bottom: .5rem; }
-      .stPlotlyChart { margin-top: .5rem; }
-      .stTabs [data-baseweb="tab"] { font-size: 14px; }
-    }
-    @media (max-width: 600px) {
-      .stButton>button, .stDownloadButton>button { font-size: 15px; padding: .95rem 1.1rem; }
-      .stExpander { margin-bottom: .6rem; }
-    }
+    :root { --radius-xl: 14px; --shadow-soft: 0 6px 18px rgba(0,0,0,.06); }
+    html, body, [class*="css"] { direction: rtl; font-family: "Tajawal","Segoe UI","Tahoma",Arial,sans-serif; }
+    .block-container { padding-top: 1rem; padding-bottom: 3rem; }
+    .stButton>button, .stDownloadButton>button { width:100%; border-radius: var(--radius-xl); box-shadow: var(--shadow-soft); }
+    @media (max-width: 900px){ [data-testid="column"]{ width:100%!important; flex:1 1 100%!important; } }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 st.title("📊 نظام متابعة المخبز — شامل (حفظ دائم)")
-
-# ====================== فحص بيئة سريع (للتشخيص) ======================
-try:
-    import pandas as _pd
-    import plotly as _pl
-    st.caption(
-        f"📁 قاعدة البيانات: `{DB_FILE}` — 📦 pandas: {_pd.__version__} | plotly: {_pl.__version__}"
-    )
-except Exception:
-    st.caption(f"📁 قاعدة البيانات: `{DB_FILE}`")
+st.caption(f"📁 قاعدة البيانات: `{DB_FILE}` — pandas: {pd.__version__}")
 
 # ====================== أدوات مساعدة ======================
 def fmt_i(x):
@@ -123,7 +67,7 @@ def days_in_month(y: int, m: int) -> int:
         d1 = date(y, m, 1); d2 = date(y, m+1, 1)
     return (d2 - d1).days
 
-# ====================== قاعدة البيانات (WAL + دوام) ======================
+# ====================== اتصال قاعدة البيانات ======================
 def _connect():
     Path(DB_FILE).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_FILE, isolation_level=None, check_same_thread=False)
@@ -135,386 +79,265 @@ def _connect():
         pass
     return conn
 
+# ====================== إنشاء الجداول (مرن مع خط رجعة) ======================
 def init_db():
+    def _try_exec(cur, sql_try: str, sql_fallback: str | None = None):
+        try:
+            cur.execute(sql_try)
+        except Exception:
+            if sql_fallback:
+                try:
+                    cur.execute(sql_fallback)
+                except Exception:
+                    pass  # قد يكون الجدول موجوداً مسبقاً
+
     conn = _connect()
     cur = conn.cursor()
 
-    # جداول أساسية (كل القيود عبر CHECK بدل TRIGGER)
-    cur.execute(
-        """
+    # daily
+    _try_exec(cur, """
         CREATE TABLE IF NOT EXISTS daily (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             dte TEXT,
-            units_samoli INTEGER CHECK (units_samoli IS NULL OR units_samoli >= 0),
-            per_thousand_samoli INTEGER CHECK (per_thousand_samoli IS NULL OR per_thousand_samoli >= 0),
-            units_madour INTEGER CHECK (units_madour IS NULL OR units_madour >= 0),
-            per_thousand_madour INTEGER CHECK (per_thousand_madour IS NULL OR per_thousand_madour >= 0),
-            flour_bags INTEGER CHECK (flour_bags IS NULL OR flour_bags >= 0),
-            flour_bag_price INTEGER CHECK (flour_bag_price IS NULL OR flour_bag_price >= 0),
-            flour_extra INTEGER CHECK (flour_extra IS NULL OR flour_extra >= 0),
-            yeast INTEGER CHECK (yeast IS NULL OR yeast >= 0),
-            salt INTEGER CHECK (salt IS NULL OR salt >= 0),
-            oil INTEGER CHECK (oil IS NULL OR oil >= 0),
-            gas INTEGER CHECK (gas IS NULL OR gas >= 0),
-            electricity INTEGER CHECK (electricity IS NULL OR electricity >= 0),
-            water INTEGER CHECK (water IS NULL OR water >= 0),
-            salaries INTEGER CHECK (salaries IS NULL OR salaries >= 0),
-            maintenance INTEGER CHECK (maintenance IS NULL OR maintenance >= 0),
-            petty INTEGER CHECK (petty IS NULL OR petty >= 0),
-            other_exp INTEGER CHECK (other_exp IS NULL OR other_exp >= 0),
-            ice INTEGER CHECK (ice IS NULL OR ice >= 0),
-            bags INTEGER CHECK (bags IS NULL OR bags >= 0),
-            daily_meal INTEGER CHECK (daily_meal IS NULL OR daily_meal >= 0),
-            owner_withdrawal INTEGER CHECK (owner_withdrawal IS NULL OR owner_withdrawal >= 0),
-            owner_repayment INTEGER CHECK (owner_repayment IS NULL OR owner_repayment >= 0),
-            owner_injection INTEGER CHECK (owner_injection IS NULL OR owner_injection >= 0),
-            funding INTEGER,  -- يسمح بسالب/موجب
-            returns INTEGER CHECK (returns IS NULL OR returns >= 0),
-            discounts INTEGER CHECK (discounts IS NULL OR discounts >= 0),
+            units_samoli INTEGER CHECK(units_samoli >= 0),
+            per_thousand_samoli INTEGER CHECK(per_thousand_samoli >= 0),
+            units_madour INTEGER CHECK(units_madour >= 0),
+            per_thousand_madour INTEGER CHECK(per_thousand_madour >= 0),
+            flour_bags INTEGER CHECK(flour_bags >= 0),
+            flour_bag_price INTEGER CHECK(flour_bag_price >= 0),
+            flour_extra INTEGER CHECK(flour_extra >= 0),
+            yeast INTEGER CHECK(yeast >= 0),
+            salt INTEGER CHECK(salt >= 0),
+            oil INTEGER CHECK(oil >= 0),
+            gas INTEGER CHECK(gas >= 0),
+            electricity INTEGER CHECK(electricity >= 0),
+            water INTEGER CHECK(water >= 0),
+            salaries INTEGER CHECK(salaries >= 0),
+            maintenance INTEGER CHECK(maintenance >= 0),
+            petty INTEGER CHECK(petty >= 0),
+            other_exp INTEGER CHECK(other_exp >= 0),
+            ice INTEGER CHECK(ice >= 0),
+            bags INTEGER CHECK(bags >= 0),
+            daily_meal INTEGER CHECK(daily_meal >= 0),
+            owner_withdrawal INTEGER CHECK(owner_withdrawal >= 0),
+            owner_repayment INTEGER CHECK(owner_repayment >= 0),
+            owner_injection INTEGER CHECK(owner_injection >= 0),
+            funding INTEGER,
+            returns INTEGER CHECK(returns >= 0),
+            discounts INTEGER CHECK(discounts >= 0),
             branch_id INTEGER DEFAULT 1
         )
-        """
-    )
+    """, """
+        CREATE TABLE IF NOT EXISTS daily (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dte TEXT,
+            units_samoli INTEGER,
+            per_thousand_samoli INTEGER,
+            units_madour INTEGER,
+            per_thousand_madour INTEGER,
+            flour_bags INTEGER,
+            flour_bag_price INTEGER,
+            flour_extra INTEGER,
+            yeast INTEGER,
+            salt INTEGER,
+            oil INTEGER,
+            gas INTEGER,
+            electricity INTEGER,
+            water INTEGER,
+            salaries INTEGER,
+            maintenance INTEGER,
+            petty INTEGER,
+            other_exp INTEGER,
+            ice INTEGER,
+            bags INTEGER,
+            daily_meal INTEGER,
+            owner_withdrawal INTEGER,
+            owner_repayment INTEGER,
+            owner_injection INTEGER,
+            funding INTEGER,
+            returns INTEGER,
+            discounts INTEGER,
+            branch_id INTEGER DEFAULT 1
+        )
+    """)
 
-    cur.execute(
-        """
+    # clients
+    _try_exec(cur, """
         CREATE TABLE IF NOT EXISTS clients (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE,
             active INTEGER DEFAULT 1,
             branch_id INTEGER DEFAULT 1
         )
-        """
-    )
+    """, """
+        CREATE TABLE IF NOT EXISTS clients (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE,
+            active INTEGER,
+            branch_id INTEGER
+        )
+    """)
 
-    cur.execute(
-        """
+    # client_deliveries
+    _try_exec(cur, """
         CREATE TABLE IF NOT EXISTS client_deliveries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             dte TEXT,
             client_id INTEGER,
-            bread_type TEXT CHECK (bread_type IN ('samoli','madour')),
-            units INTEGER CHECK (units IS NULL OR units >= 0),
-            per_thousand INTEGER CHECK (per_thousand IS NULL OR per_thousand >= 0),
-            revenue INTEGER CHECK (revenue IS NULL OR revenue >= 0),
-            payment_method TEXT CHECK (payment_method IN ('cash','credit')),
+            bread_type TEXT CHECK(bread_type IN ('samoli','madour')),
+            units INTEGER CHECK(units >= 0),
+            per_thousand INTEGER CHECK(per_thousand >= 0),
+            revenue INTEGER CHECK(revenue >= 0),
+            payment_method TEXT CHECK(payment_method IN ('cash','credit')),
             cash_source TEXT,
             branch_id INTEGER DEFAULT 1,
             FOREIGN KEY(client_id) REFERENCES clients(id)
         )
-        """
-    )
+    """, """
+        CREATE TABLE IF NOT EXISTS client_deliveries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dte TEXT,
+            client_id INTEGER,
+            bread_type TEXT,
+            units INTEGER,
+            per_thousand INTEGER,
+            revenue INTEGER,
+            payment_method TEXT,
+            cash_source TEXT,
+            branch_id INTEGER,
+            FOREIGN KEY(client_id) REFERENCES clients(id)
+        )
+    """)
 
-    cur.execute(
-        """
+    # client_payments
+    _try_exec(cur, """
         CREATE TABLE IF NOT EXISTS client_payments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             dte TEXT,
             client_id INTEGER,
-            amount INTEGER CHECK (amount IS NULL OR amount >= 0),
-            source TEXT CHECK (source IN ('cash','bank')),
+            amount INTEGER CHECK(amount >= 0),
+            source TEXT CHECK(source IN ('cash','bank')),
             note TEXT,
             branch_id INTEGER DEFAULT 1,
             FOREIGN KEY(client_id) REFERENCES clients(id)
         )
-        """
-    )
+    """, """
+        CREATE TABLE IF NOT EXISTS client_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dte TEXT,
+            client_id INTEGER,
+            amount INTEGER,
+            source TEXT,
+            note TEXT,
+            branch_id INTEGER,
+            FOREIGN KEY(client_id) REFERENCES clients(id)
+        )
+    """)
 
-    cur.execute(
-        """
+    # rent_settings
+    _try_exec(cur, """
         CREATE TABLE IF NOT EXISTS rent_settings (
             year INTEGER,
             month INTEGER,
-            monthly_rent INTEGER CHECK (monthly_rent IS NULL OR monthly_rent >= 0),
-            PRIMARY KEY (year, month)
+            monthly_rent INTEGER CHECK(monthly_rent >= 0),
+            PRIMARY KEY(year, month)
         )
-        """
-    )
+    """, """
+        CREATE TABLE IF NOT EXISTS rent_settings (
+            year INTEGER,
+            month INTEGER,
+            monthly_rent INTEGER,
+            PRIMARY KEY(year, month)
+        )
+    """)
 
-    cur.execute(
-        """
+    # money_moves
+    _try_exec(cur, """
         CREATE TABLE IF NOT EXISTS money_moves (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             dte TEXT,
-            source TEXT CHECK (source IN ('cash','bank')),
-            amount INTEGER,   -- قد يكون سالبًا أو موجبًا
+            source TEXT CHECK(source IN ('cash','bank')),
+            amount INTEGER,
             reason TEXT,
             branch_id INTEGER DEFAULT 1
         )
-        """
-    )
+    """, """
+        CREATE TABLE IF NOT EXISTS money_moves (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dte TEXT,
+            source TEXT,
+            amount INTEGER,
+            reason TEXT,
+            branch_id INTEGER
+        )
+    """)
 
-    # جداول المخزون والغاز
-    cur.execute(
-        """
+    # flour_purchases
+    _try_exec(cur, """
         CREATE TABLE IF NOT EXISTS flour_purchases (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             dte TEXT,
-            bags INTEGER CHECK (bags IS NULL OR bags >= 0),
-            bag_price INTEGER CHECK (bag_price IS NULL OR bag_price >= 0),
+            bags INTEGER CHECK(bags >= 0),
+            bag_price INTEGER CHECK(bag_price >= 0),
             note TEXT
         )
-        """
-    )
+    """, """
+        CREATE TABLE IF NOT EXISTS flour_purchases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dte TEXT,
+            bags INTEGER,
+            bag_price INTEGER,
+            note TEXT
+        )
+    """)
 
-    cur.execute(
-        """
+    # gas_settings
+    _try_exec(cur, """
         CREATE TABLE IF NOT EXISTS gas_settings (
             year INTEGER,
             month INTEGER,
-            monthly_gas INTEGER CHECK (monthly_gas IS NULL OR monthly_gas >= 0),
-            PRIMARY KEY (year, month)
+            monthly_gas INTEGER CHECK(monthly_gas >= 0),
+            PRIMARY KEY(year, month)
         )
-        """
-    )
+    """, """
+        CREATE TABLE IF NOT EXISTS gas_settings (
+            year INTEGER,
+            month INTEGER,
+            monthly_gas INTEGER,
+            PRIMARY KEY(year, month)
+        )
+    """)
 
     # فهارس
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_daily_dte ON daily(dte)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_moves_dte ON money_moves(dte)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_cd_dte ON client_deliveries(dte)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_cp_dte ON client_payments(dte)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_clients_name ON clients(name)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_daily_branch_date ON daily(branch_id, dte)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_moves_branch_date ON money_moves(branch_id, dte)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_cd_branch_date ON client_deliveries(branch_id, dte)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_cp_branch_date ON client_payments(branch_id, dte)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_clients_branch ON clients(branch_id)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_flourp_dte ON flour_purchases(dte)")
+    for stmt in [
+        "CREATE INDEX IF NOT EXISTS idx_daily_dte ON daily(dte)",
+        "CREATE INDEX IF NOT EXISTS idx_moves_dte ON money_moves(dte)",
+        "CREATE INDEX IF NOT EXISTS idx_cd_dte ON client_deliveries(dte)",
+        "CREATE INDEX IF NOT EXISTS idx_cp_dte ON client_payments(dte)",
+        "CREATE INDEX IF NOT EXISTS idx_clients_name ON clients(name)",
+        "CREATE INDEX IF NOT EXISTS idx_flourp_dte ON flour_purchases(dte)",
+    ]:
+        try:
+            cur.execute(stmt)
+        except Exception:
+            pass
 
     conn.commit()
     conn.close()
-    # قيود جودة
-    cur.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS trg_cd_bread_type_ins
-        BEFORE INSERT ON client_deliveries
-        BEGIN
-            SELECT CASE
-                WHEN NEW.bread_type NOT IN ('samoli','madour') THEN
-                    RAISE(ABORT, 'bread_type must be samoli or madour');
-            END;
-        END;
-        """
-    )
-    cur.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS trg_cd_bread_type_upd
-        BEFORE UPDATE ON client_deliveries
-        BEGIN
-            SELECT CASE
-                WHEN NEW.bread_type NOT IN ('samoli','madour') THEN
-                    RAISE(ABORT, 'bread_type must be samoli or madour');
-            END;
-        END;
-        """
-    )
-    cur.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS trg_cd_paymethod_ins
-        BEFORE INSERT ON client_deliveries
-        BEGIN
-            SELECT CASE
-                WHEN NEW.payment_method NOT IN ('cash','credit') THEN
-                    RAISE(ABORT, 'payment_method must be cash or credit');
-            END;
-        END;
-        """
-    )
-    cur.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS trg_cd_paymethod_upd
-        BEFORE UPDATE ON client_deliveries
-        BEGIN
-            SELECT CASE
-                WHEN NEW.payment_method NOT IN ('cash','credit') THEN
-                    RAISE(ABORT, 'payment_method must be cash or credit');
-            END;
-        END;
-        """
-    )
-    cur.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS trg_mm_source_ins
-        BEFORE INSERT ON money_moves
-        BEGIN
-            SELECT CASE
-                WHEN NEW.source NOT IN ('cash','bank') THEN
-                    RAISE(ABORT, 'source must be cash or bank');
-            END;
-        END;
-        """
-    )
-    cur.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS trg_mm_source_upd
-        BEFORE UPDATE ON money_moves
-        BEGIN
-            SELECT CASE
-                WHEN NEW.source NOT IN ('cash','bank') THEN
-                    RAISE(ABORT, 'source must be cash or bank');
-            END;
-        END;
-        """
-    )
-    cur.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS trg_cp_source_ins
-        BEFORE INSERT ON client_payments
-        BEGIN
-            SELECT CASE
-                WHEN NEW.source NOT IN ('cash','bank') THEN
-                    RAISE(ABORT, 'source must be cash or bank');
-            END;
-        END;
-        """
-    )
-    cur.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS trg_cp_source_upd
-        BEFORE UPDATE ON client_payments
-        BEGIN
-            SELECT CASE
-                WHEN NEW.source NOT IN ('cash','bank') THEN
-                    RAISE(ABORT, 'source must be cash or bank');
-            END;
-        END;
-        """
-    )
-    cur.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS trg_daily_nonneg_ins
-        BEFORE INSERT ON daily
-        BEGIN
-            SELECT CASE
-                WHEN IFNULL(NEW.units_samoli,0) < 0 OR
-                     IFNULL(NEW.units_madour,0) < 0 OR
-                     IFNULL(NEW.flour_bags,0) < 0 OR
-                     IFNULL(NEW.flour_bag_price,0) < 0 OR
-                     IFNULL(NEW.flour_extra,0) < 0 OR
-                     IFNULL(NEW.yeast,0) < 0 OR
-                     IFNULL(NEW.salt,0) < 0 OR
-                     IFNULL(NEW.oil,0) < 0 OR
-                     IFNULL(NEW.gas,0) < 0 OR
-                     IFNULL(NEW.electricity,0) < 0 OR
-                     IFNULL(NEW.water,0) < 0 OR
-                     IFNULL(NEW.salaries,0) < 0 OR
-                     IFNULL(NEW.maintenance,0) < 0 OR
-                     IFNULL(NEW.petty,0) < 0 OR
-                     IFNULL(NEW.other_exp,0) < 0 OR
-                     IFNULL(NEW.ice,0) < 0 OR
-                     IFNULL(NEW.bags,0) < 0 OR
-                     IFNULL(NEW.daily_meal,0) < 0 OR
-                     IFNULL(NEW.owner_withdrawal,0) < 0 OR
-                     IFNULL(NEW.owner_repayment,0) < 0 OR
-                     IFNULL(NEW.owner_injection,0) < 0 OR
-                     IFNULL(NEW.returns,0) < 0 OR
-                     IFNULL(NEW.discounts,0) < 0
-                THEN RAISE(ABORT, 'negative values not allowed in daily fields');
-            END;
-        END;
-        """
-    )
-    cur.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS trg_daily_nonneg_upd
-        BEFORE UPDATE ON daily
-        BEGIN
-            SELECT CASE
-                WHEN IFNULL(NEW.units_samoli,0) < 0 OR
-                     IFNULL(NEW.units_madour,0) < 0 OR
-                     IFNULL(NEW.flour_bags,0) < 0 OR
-                     IFNULL(NEW.flour_bag_price,0) < 0 OR
-                     IFNULL(NEW.flour_extra,0) < 0 OR
-                     IFNULL(NEW.yeast,0) < 0 OR
-                     IFNULL(NEW.salt,0) < 0 OR
-                     IFNULL(NEW.oil,0) < 0 OR
-                     IFNULL(NEW.gas,0) < 0 OR
-                     IFNULL(NEW.electricity,0) < 0 OR
-                     IFNULL(NEW.water,0) < 0 OR
-                     IFNULL(NEW.salaries,0) < 0 OR
-                     IFNULL(NEW.maintenance,0) < 0 OR
-                     IFNULL(NEW.petty,0) < 0 OR
-                     IFNULL(NEW.other_exp,0) < 0 OR
-                     IFNULL(NEW.ice,0) < 0 OR
-                     IFNULL(NEW.bags,0) < 0 OR
-                     IFNULL(NEW.daily_meal,0) < 0 OR
-                     IFNULL(NEW.owner_withdrawal,0) < 0 OR
-                     IFNULL(NEW.owner_repayment,0) < 0 OR
-                     IFNULL(NEW.owner_injection,0) < 0 OR
-                     IFNULL(NEW.returns,0) < 0 OR
-                     IFNULL(NEW.discounts,0) < 0
-                THEN RAISE(ABORT, 'negative values not allowed in daily fields');
-            END;
-        END;
-        """
-    )
 
-    conn.commit(); conn.close()
-
-# ==== جداول جديدة: مشتريات الدقيق + غاز شهري ====
+# ==== جداول إضافية ====
 def init_inventory_tables():
-    conn = _connect(); cur = conn.cursor()
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS flour_purchases (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        dte TEXT,
-        bags INTEGER,
-        bag_price INTEGER,
-        note TEXT
-    )
-    """)
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_flourp_dte ON flour_purchases(dte)")
-    # منع السالب
-    cur.execute("""
-    CREATE TRIGGER IF NOT EXISTS trg_flourp_nonneg_ins
-    BEFORE INSERT ON flour_purchases
-    BEGIN
-        SELECT CASE
-            WHEN IFNULL(NEW.bags,0) < 0 OR IFNULL(NEW.bag_price,0) < 0
-            THEN RAISE(ABORT,'negative values not allowed in flour_purchases');
-        END;
-    END;
-    """)
-    cur.execute("""
-    CREATE TRIGGER IF NOT EXISTS trg_flourp_nonneg_upd
-    BEFORE UPDATE ON flour_purchases
-    BEGIN
-        SELECT CASE
-            WHEN IFNULL(NEW.bags,0) < 0 OR IFNULL(NEW.bag_price,0) < 0
-            THEN RAISE(ABORT,'negative values not allowed in flour_purchases');
-        END;
-    END;
-    """)
-    conn.commit(); conn.close()
+    pass  # مدمجة أعلاه داخل init_db
 
 def init_gas_table():
-    conn = _connect(); cur = conn.cursor()
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS gas_settings (
-        year INTEGER,
-        month INTEGER,
-        monthly_gas INTEGER,
-        PRIMARY KEY (year, month)
-    )
-    """)
-    conn.commit(); conn.close()
+    pass  # مدمجة أعلاه داخل init_db
 
-# تهيئة لمرة واحدة لكل جلسة — + ترحيل تلقائي إن وُجد ملف /tmp قديم
+# تهيئة لمرة واحدة
 if "db_init" not in st.session_state:
-    # ترحيل من النسخة المؤقتة القديمة إن وجدت
-    old_tmp = "/tmp/bakery_tracker.db"
-    if os.path.exists(old_tmp) and not os.path.exists(DB_FILE):
-        try:
-            Path(DB_FILE).parent.mkdir(parents=True, exist_ok=True)
-            os.replace(old_tmp, DB_FILE)
-        except Exception:
-            pass
     init_db()
-    init_inventory_tables()
-    init_gas_table()
     st.session_state["db_init"] = True
 
-# ====================== دوال بيانات أساسية ======================
+# ====================== دوال البيانات ======================
 def revenue_from_thousand(units: int, per_thousand: int) -> int:
     u = int(units or 0); p = int(per_thousand or 0)
     if p <= 0:
@@ -523,14 +346,11 @@ def revenue_from_thousand(units: int, per_thousand: int) -> int:
 
 def set_monthly_rent(year: int, month: int, monthly_rent: int):
     conn = _connect(); cur = conn.cursor()
-    cur.execute(
-        """
+    cur.execute("""
         INSERT INTO rent_settings(year, month, monthly_rent)
         VALUES(?,?,?)
         ON CONFLICT(year,month) DO UPDATE SET monthly_rent=excluded.monthly_rent
-        """,
-        (int(year), int(month), int(monthly_rent))
-    )
+    """, (int(year), int(month), int(monthly_rent)))
     conn.commit(); conn.close()
 
 def get_monthly_rent(year: int, month: int) -> int:
@@ -585,9 +405,9 @@ def insert_daily(row: tuple):
         row
     )
     conn.commit(); conn.close()
-    fetch_daily_df.clear()  # تحديث الكاش
+    fetch_daily_df.clear()
 
-# ====================== دوال الدقيق (مشتريات + مخزون + متوسط تكلفة) ======================
+# ====== الدقيق ======
 def add_flour_purchase(dte: date, bags: int, bag_price: int, note: str = ""):
     if int(bags or 0) <= 0 or int(bag_price or 0) <= 0:
         return
@@ -630,13 +450,13 @@ def avg_bag_cost_until(ts: pd.Timestamp) -> int:
     weighted = (rows["bags"] * rows["bag_price"]).sum()
     return int(round(weighted / rows["bags"].sum()))
 
-# ====================== غاز شهري (توزيع يومي تلقائي) ======================
+# ====== الغاز ======
 def set_monthly_gas(year: int, month: int, amount: int):
     conn = _connect(); cur = conn.cursor()
     cur.execute("""
-    INSERT INTO gas_settings(year, month, monthly_gas)
-    VALUES(?,?,?)
-    ON CONFLICT(year,month) DO UPDATE SET monthly_gas=excluded.monthly_gas
+        INSERT INTO gas_settings(year, month, monthly_gas)
+        VALUES(?,?,?)
+        ON CONFLICT(year,month) DO UPDATE SET monthly_gas=excluded.monthly_gas
     """, (int(year), int(month), int(amount)))
     conn.commit(); conn.close()
 
@@ -662,12 +482,10 @@ def fetch_daily_df() -> pd.DataFrame:
     if df.empty:
         return df
 
-    # الإيرادات
     df["إيراد الصامولي"] = [revenue_from_thousand(u, p) for u, p in zip(df["units_samoli"], df["per_thousand_samoli"])]
     df["إيراد المدور"]   = [revenue_from_thousand(u, p) for u, p in zip(df["units_madour"], df["per_thousand_madour"])]
     df["إجمالي المبيعات"] = (df["إيراد الصامولي"].fillna(0) + df["إيراد المدور"].fillna(0)).astype(int)
 
-    # تكلفة الدقيق
     avg_costs = []
     bags_series = df["flour_bags"].fillna(0).astype(int)
     for ts, bags in zip(df["dte"], bags_series):
@@ -678,10 +496,8 @@ def fetch_daily_df() -> pd.DataFrame:
     fallback = (bags_series * df["flour_bag_price"].fillna(0).astype(int))
     df["تكلفة الدقيق"] = (pd.Series(avg_costs, index=df.index).where(lambda s: s > 0, fallback)).astype(int)
 
-    # إيجار يومي
     df["إيجار يومي"] = df["dte"].apply(lambda ts: rent_per_day_for(pd.Timestamp(ts)))
 
-    # غاز موزّع/يدوي
     if "gas" not in df.columns:
         df["gas"] = 0
     df["gas"] = df.apply(
@@ -705,7 +521,7 @@ def fetch_daily_df() -> pd.DataFrame:
 
     return df
 
-# ====================== عملاء ======================
+# ====================== العملاء ======================
 def add_client(name: str, active: bool = True):
     conn = _connect(); cur = conn.cursor()
     cur.execute("INSERT OR IGNORE INTO clients(name,active) VALUES(?,?)", (name.strip(), 1 if active else 0))
@@ -1206,21 +1022,13 @@ else:
 up = st.file_uploader("📤 ارفع ملف SQLite للاسترجاع (سَيَستبدل القاعدة الحالية)", type=["sqlite","db"])
 if up is not None:
     try:
-        # عمل نسخة احتياطية باسم مؤرَّخ قبل الاستبدال
         if os.path.exists(DB_FILE):
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_path = f"{DB_FILE}.bak_{ts}"
-            try:
-                with open(DB_FILE, "rb") as src, open(backup_path, "wb") as dst:
-                    dst.write(src.read())
-            except Exception:
-                pass
+            with open(DB_FILE, "rb") as src, open(f"{DB_FILE}.bak_{ts}", "wb") as dst:
+                dst.write(src.read())
         with open(DB_FILE, "wb") as dst:
             dst.write(up.read())
-        fetch_daily_df.clear()
-        list_clients.clear()
-        flour_stock_on_hand.clear()
-        avg_bag_cost_until.clear()
+        fetch_daily_df.clear(); list_clients.clear(); flour_stock_on_hand.clear(); avg_bag_cost_until.clear()
         st.success("تم الاسترجاع بنجاح. لو لم تظهر البيانات، أعد تحميل الصفحة.")
     except Exception as e:
         st.error(f"تعذّر الاسترجاع: {e}")
@@ -1330,7 +1138,6 @@ with TAB_REPORT:
                         else:
                             pd.DataFrame(columns=["لا توجد مدفوعات عملاء في هذا الشهر"]).to_excel(writer, sheet_name="سداد_العملاء", index=False)
 
-                        # أرصدة الذمم الحالية
                         ar_month = fetch_ar_df()
                         ar_month.to_excel(writer, sheet_name="الذمم", index=False)
 
@@ -1360,8 +1167,8 @@ with TAB_REPORT:
     show_chart = w_col2.checkbox("عرض مخطط الربح خلال الأسبوع", value=True, key="weekly_show_chart")
 
     picked_ts = pd.Timestamp(picked_day)
-    week_start = picked_ts - pd.Timedelta(days=(picked_ts.weekday()))   # Monday
-    week_end   = week_start + pd.Timedelta(days=6)                      # Sunday
+    week_start = picked_ts - pd.Timedelta(days=(picked_ts.weekday()))
+    week_end   = week_start + pd.Timedelta(days=6)
 
     st.caption(f"المدى: من {week_start.date()} إلى {week_end.date()}")
 
@@ -1452,7 +1259,7 @@ with TAB_REPORT:
                             }, inplace=True)
                             for c in ["الكمية","عدد للرغيف/1000","الإيراد"]:
                                 if c in del_out.columns:
-                                    del_out[c] = del_out[c].fillنا(0).astype(int)
+                                    del_out[c] = del_out[c].fillna(0).astype(int)
                             del_out.to_excel(writer, sheet_name="العملاء", index=False)
                         else:
                             pd.DataFrame(columns=["لا توجد توريدات في هذا الأسبوع"]).to_excel(writer, sheet_name="العملاء", index=False)
@@ -1468,7 +1275,7 @@ with TAB_REPORT:
                         if not money_w.empty:
                             money_out = money_w.copy()
                             money_out.rename(columns={"dte":"التاريخ","source":"المصدر","amount":"المبلغ","reason":"السبب"}, inplace=True)
-                            money_out["المبلغ"] = pd.to_numeric(money_w["المبلغ"], errors="coerce").fillna(0).astype(int)
+                            money_out["المبلغ"] = pd.to_numeric(money_out["المبلغ"], errors="coerce").fillna(0).astype(int)
                             money_out.to_excel(writer, sheet_name="حركة_النقد", index=False)
                         else:
                             pd.DataFrame(columns=["لا توجد حركات نقدية في هذا الأسبوع"]).to_excel(writer, sheet_name="حركة_النقد", index=False)
