@@ -502,6 +502,7 @@ with tab_manage:
     if df.empty:
         st.info("لا توجد بيانات بعد.")
     else:
+        # حذف سجل من اليومية
         st.markdown("احذف سجلًا محددًا من اليومية")
         to_delete = st.selectbox(
             "اختر السجل (بالـ ID والتاريخ والربح)",
@@ -520,74 +521,14 @@ with tab_manage:
         st.markdown("### مزامنة مع Google Sheets")
 
         def _normalize_private_key(pk: str) -> str:
-            """
-            يقبل private_key سواء كان في سطر واحد أو يحتوي \n
-            ويُعيده بصيغة PEM صحيحة لـ google-auth
-            """
-            if "\\n" in pk:  # مكتوب فيه \n كنص
+            """يحّول private_key لسطر PEM صحيح لو كان بدون \\n."""
+            if "\\n" in pk:      # مكتوب فيه \n كنص
                 return pk.replace("\\n", "\n")
-            if "\n" in pk:   # فيه أسطر جديدة حقيقية
+            if "\n" in pk:       # فيه أسطر جديدة حقيقية
                 return pk
-            # حالة سطر واحد بلا أسطر: نعيد تشكيله
             head = "-----BEGIN PRIVATE KEY-----"
             tail = "-----END PRIVATE KEY-----"
             body = pk.replace(head, "").replace(tail, "").strip().replace(" ", "")
             return f"{head}\n{body}\n{tail}\n"
 
-        if st.button("🔄 Sync to Google Sheets"):
-            try:
-                from google.oauth2.service_account import Credentials
-                import gspread
-                from gspread_dataframe import set_with_dataframe
-
-                # 1) قراءة الأسرار بصيغة TOML: قسم [google] + المتغير GOOGLE_SHEETS_DOC_ID
-                gsec = dict(st.secrets["google"])
-                gsec["private_key"] = _normalize_private_key(gsec["private_key"])
-                sheet_id = st.secrets["GOOGLE_SHEETS_DOC_ID"]
-
-                # 2) إنشاء الاعتماد والاتصال
-                SCOPES = [
-                    "https://www.googleapis.com/auth/spreadsheets",
-                    "https://www.googleapis.com/auth/drive.file",
-                ]
-                creds = Credentials.from_service_account_info(gsec, scopes=SCOPES)
-                client = gspread.authorize(creds)
-                sh = client.open_by_key(sheet_id)
-
-                # 3) تحضير ورقة Daily
-                try:
-                    ws_daily = sh.worksheet("Daily")
-                except gspread.exceptions.WorksheetNotFound:
-                    ws_daily = sh.add_worksheet(title="Daily", rows=2000, cols=50)
-
-                daily = fetch_daily_df()
-                d = daily.copy()
-                if not d.empty and "dte" in d.columns:
-                    d["dte"] = d["dte"].dt.date.astype(str)
-
-                ws_daily.clear()
-                set_with_dataframe(ws_daily, d)
-
-                # 4) تحضير ورقة Monthly (إن وُجدت بيانات)
-                monthly = fetch_monthly_df()
-                if monthly is not None and not monthly.empty:
-                    try:
-                        ws_monthly = sh.worksheet("Monthly")
-                    except gspread.exceptions.WorksheetNotFound:
-                        ws_monthly = sh.add_worksheet(title="Monthly", rows=200, cols=30)
-
-                    m = monthly.copy()
-                    if "month" in m.columns:
-                        m["month"] = pd.to_datetime(m["month"]).dt.date.astype(str)
-
-                    ws_monthly.clear()
-                    set_with_dataframe(ws_monthly, m)
-
-                st.success("تمت المزامنة بنجاح إلى أوراق Daily و Monthly ✅")
-
-            except Exception as e:
-                st.error(f"فشلت المزامنة: {e}")
-                st.caption(
-                    "تأكد من تهيئة Secrets بصيغة TOML: قسم [google] + GOOGLE_SHEETS_DOC_ID، "
-                    "وأن الشيت مشارك مع إيميل الحساب الخِدمي بصلاحية Editor."
-                )
+        def _get_sheet_id_from_secrets():
