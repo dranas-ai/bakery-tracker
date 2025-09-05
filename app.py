@@ -139,42 +139,43 @@ def init_db():
     conn = _connect()
     cur = conn.cursor()
 
-    # جداول أساسية
+    # جداول أساسية (كل القيود عبر CHECK بدل TRIGGER)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS daily (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             dte TEXT,
-            units_samoli INTEGER,
-            per_thousand_samoli INTEGER,
-            units_madour INTEGER,
-            per_thousand_madour INTEGER,
-            flour_bags INTEGER,
-            flour_bag_price INTEGER,
-            flour_extra INTEGER,
-            yeast INTEGER,
-            salt INTEGER,
-            oil INTEGER,
-            gas INTEGER,
-            electricity INTEGER,
-            water INTEGER,
-            salaries INTEGER,
-            maintenance INTEGER,
-            petty INTEGER,
-            other_exp INTEGER,
-            ice INTEGER,
-            bags INTEGER,
-            daily_meal INTEGER,
-            owner_withdrawal INTEGER,
-            owner_repayment INTEGER,
-            owner_injection INTEGER,
-            funding INTEGER,
-            returns INTEGER,
-            discounts INTEGER,
+            units_samoli INTEGER CHECK (units_samoli IS NULL OR units_samoli >= 0),
+            per_thousand_samoli INTEGER CHECK (per_thousand_samoli IS NULL OR per_thousand_samoli >= 0),
+            units_madour INTEGER CHECK (units_madour IS NULL OR units_madour >= 0),
+            per_thousand_madour INTEGER CHECK (per_thousand_madour IS NULL OR per_thousand_madour >= 0),
+            flour_bags INTEGER CHECK (flour_bags IS NULL OR flour_bags >= 0),
+            flour_bag_price INTEGER CHECK (flour_bag_price IS NULL OR flour_bag_price >= 0),
+            flour_extra INTEGER CHECK (flour_extra IS NULL OR flour_extra >= 0),
+            yeast INTEGER CHECK (yeast IS NULL OR yeast >= 0),
+            salt INTEGER CHECK (salt IS NULL OR salt >= 0),
+            oil INTEGER CHECK (oil IS NULL OR oil >= 0),
+            gas INTEGER CHECK (gas IS NULL OR gas >= 0),
+            electricity INTEGER CHECK (electricity IS NULL OR electricity >= 0),
+            water INTEGER CHECK (water IS NULL OR water >= 0),
+            salaries INTEGER CHECK (salaries IS NULL OR salaries >= 0),
+            maintenance INTEGER CHECK (maintenance IS NULL OR maintenance >= 0),
+            petty INTEGER CHECK (petty IS NULL OR petty >= 0),
+            other_exp INTEGER CHECK (other_exp IS NULL OR other_exp >= 0),
+            ice INTEGER CHECK (ice IS NULL OR ice >= 0),
+            bags INTEGER CHECK (bags IS NULL OR bags >= 0),
+            daily_meal INTEGER CHECK (daily_meal IS NULL OR daily_meal >= 0),
+            owner_withdrawal INTEGER CHECK (owner_withdrawal IS NULL OR owner_withdrawal >= 0),
+            owner_repayment INTEGER CHECK (owner_repayment IS NULL OR owner_repayment >= 0),
+            owner_injection INTEGER CHECK (owner_injection IS NULL OR owner_injection >= 0),
+            funding INTEGER,  -- يسمح بسالب/موجب
+            returns INTEGER CHECK (returns IS NULL OR returns >= 0),
+            discounts INTEGER CHECK (discounts IS NULL OR discounts >= 0),
             branch_id INTEGER DEFAULT 1
         )
         """
     )
+
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS clients (
@@ -185,56 +186,84 @@ def init_db():
         )
         """
     )
+
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS client_deliveries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             dte TEXT,
             client_id INTEGER,
-            bread_type TEXT,
-            units INTEGER,
-            per_thousand INTEGER,
-            revenue INTEGER,
-            payment_method TEXT,
+            bread_type TEXT CHECK (bread_type IN ('samoli','madour')),
+            units INTEGER CHECK (units IS NULL OR units >= 0),
+            per_thousand INTEGER CHECK (per_thousand IS NULL OR per_thousand >= 0),
+            revenue INTEGER CHECK (revenue IS NULL OR revenue >= 0),
+            payment_method TEXT CHECK (payment_method IN ('cash','credit')),
             cash_source TEXT,
             branch_id INTEGER DEFAULT 1,
             FOREIGN KEY(client_id) REFERENCES clients(id)
         )
         """
     )
+
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS client_payments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             dte TEXT,
             client_id INTEGER,
-            amount INTEGER,
-            source TEXT,
+            amount INTEGER CHECK (amount IS NULL OR amount >= 0),
+            source TEXT CHECK (source IN ('cash','bank')),
             note TEXT,
             branch_id INTEGER DEFAULT 1,
             FOREIGN KEY(client_id) REFERENCES clients(id)
         )
         """
     )
+
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS rent_settings (
             year INTEGER,
             month INTEGER,
-            monthly_rent INTEGER,
+            monthly_rent INTEGER CHECK (monthly_rent IS NULL OR monthly_rent >= 0),
             PRIMARY KEY (year, month)
         )
         """
     )
+
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS money_moves (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             dte TEXT,
-            source TEXT,
-            amount INTEGER,
+            source TEXT CHECK (source IN ('cash','bank')),
+            amount INTEGER,   -- قد يكون سالبًا أو موجبًا
             reason TEXT,
             branch_id INTEGER DEFAULT 1
+        )
+        """
+    )
+
+    # جداول المخزون والغاز
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS flour_purchases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dte TEXT,
+            bags INTEGER CHECK (bags IS NULL OR bags >= 0),
+            bag_price INTEGER CHECK (bag_price IS NULL OR bag_price >= 0),
+            note TEXT
+        )
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gas_settings (
+            year INTEGER,
+            month INTEGER,
+            monthly_gas INTEGER CHECK (monthly_gas IS NULL OR monthly_gas >= 0),
+            PRIMARY KEY (year, month)
         )
         """
     )
@@ -250,7 +279,10 @@ def init_db():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_cd_branch_date ON client_deliveries(branch_id, dte)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_cp_branch_date ON client_payments(branch_id, dte)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_clients_branch ON clients(branch_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_flourp_dte ON flour_purchases(dte)")
 
+    conn.commit()
+    conn.close()
     # قيود جودة
     cur.execute(
         """
