@@ -116,21 +116,26 @@ def _ensure_table(conn, name: str, schema: dict):
 
 
 def init_db():
+    global DB_FILE, DB_PERSISTENT
     try:
         conn = sqlite3.connect(DB_FILE)
         _ensure_table(conn, "daily", SCHEMA_DAILY)
         _ensure_table(conn, "monthly", SCHEMA_MONTHLY)
         conn.close()
-    except Exception as e:
+    except Exception:
+        # فشل فتح القاعدة في المسار الحالي → نستخدم in-memory ونكمّل التشغيل
         msg = (
             "تعذّر فتح قاعدة البيانات في المسارات الافتراضية. "
             "سيتم تشغيل التطبيق بدون حفظ دائم (ذاكرة مؤقتة). "
             "يمكنك تحديد مسار ثابت عبر متغير البيئة DB_DIR."
         )
         st.error(msg)
-        # استخدام SQLite in-memory كحل أخير
-        global DB_FILE, DB_PERSISTENT
-        DB_FILE, DB_PERSISTENT = ":memory:", False
+        DB_FILE = ":memory:"
+        DB_PERSISTENT = False
+        conn = sqlite3.connect(DB_FILE)
+        _ensure_table(conn, "daily", SCHEMA_DAILY)
+        _ensure_table(conn, "monthly", SCHEMA_MONTHLY)
+        conn.close()
 
 
 def insert_daily(row: dict):
