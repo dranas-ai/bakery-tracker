@@ -515,3 +515,60 @@ with tab_manage:
         st.markdown("---")
         persist_note = "دائم" if DB_PERSISTENT else "مؤقّت (اعيّن DB_DIR لمسار كتابة دائم)"
         st.caption(f"قاعدة البيانات: {DB_FILE} — حفظ {persist_note}.")
+# --- مزامنة مع Google Sheets ---
+st.markdown("### مزامنة مع Google Sheets")
+if st.button("🔄 Sync to Google Sheets"):
+    try:
+        import json
+        from google.oauth2.service_account import Credentials
+        import gspread
+        from gspread_dataframe import set_with_dataframe
+
+        sa_info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+        sheet_id = st.secrets["GOOGLE_SHEETS_DOC_ID"]
+
+        SCOPES = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive.file",
+        ]
+        creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
+        client = gspread.authorize(creds)
+        sh = client.open_by_key(sheet_id)
+
+        # Daily sheet
+        try:
+            ws_daily = sh.worksheet("Daily")
+        except gspread.exceptions.WorksheetNotFound:
+            ws_daily = sh.add_worksheet(title="Daily", rows=2000, cols=50)
+
+        daily = fetch_daily_df()
+        if not daily.empty:
+            d = daily.copy()
+            if "dte" in d.columns:
+                d["dte"] = d["dte"].dt.date.astype(str)
+        else:
+            d = daily
+
+        ws_daily.clear()
+        set_with_dataframe(ws_daily, d)
+
+        # Monthly sheet
+        monthly = fetch_monthly_df()
+        if monthly is not None and not monthly.empty:
+            try:
+                ws_monthly = sh.worksheet("Monthly")
+            except gspread.exceptions.WorksheetNotFound:
+                ws_monthly = sh.add_worksheet(title="Monthly", rows=200, cols=30)
+
+            m = monthly.copy()
+            if "month" in m.columns:
+                m["month"] = pd.to_datetime(m["month"]).dt.date.astype(str)
+
+            ws_monthly.clear()
+            set_with_dataframe(ws_monthly, m)
+
+        st.success("تمت المزامنة بنجاح إلى أوراق Daily و Monthly.")
+
+    except Exception as e:
+        st.error(f"فشلت المزامنة: {e}")
+        st.caption("تأكد من GOOGLE_CREDENTIALS و GOOGLE_SHEETS_DOC_ID، وأن الشيت متشارك مع إيميل الحساب الخِدمي بصلاحية Editor.")
