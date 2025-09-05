@@ -205,12 +205,21 @@ def fetch_daily_df() -> pd.DataFrame:
     if dfm is not None and not dfm.empty:
         m = dfm.copy()
         m["month"] = pd.to_datetime(m["month"])  # YYYY-MM-01
-        # عدد الأيام في كل شهر موجود في اليومية
-        days_per_month = df.groupby("month").size().rename("days").reset_index()
-        m = m.merge(days_per_month, on="month", how="right").fillna({"gas":0, "rent":0})
-        m["per_day_gas"] = (m["gas"].astype(int) // m["days"].replace(0, pd.NA)).fillna(0).astype(int)
-        m["per_day_rent"] = (m["rent"].astype(int) // m["days"].replace(0, pd.NA)).fillna(0).astype(int)
-        df = df.merge(m[["month","per_day_gas","per_day_rent"]], on="month", how="left").fillna({"per_day_gas":0, "per_day_rent":0})
+        # تقسيم ثابت على 30 يوم كما طلبت + توزيع البواقي على آخر يوم مُسجّل في الشهر
+        m["per_day_gas"] = (m["gas"].fillna(0).astype(int) // 30).astype(int)
+        m["per_day_rent"] = (m["rent"].fillna(0).astype(int) // 30).astype(int)
+        m["rem_gas"] = (m["gas"].fillna(0).astype(int) % 30).astype(int)
+        m["rem_rent"] = (m["rent"].fillna(0).astype(int) % 30).astype(int)
+        df = df.merge(
+            m[["month","per_day_gas","per_day_rent","rem_gas","rem_rent"]],
+            on="month", how="left"
+        ).fillna({"per_day_gas":0, "per_day_rent":0, "rem_gas":0, "rem_rent":0})
+        # إضافة البواقي لآخر تاريخ مُسجّل في كل شهر
+        last_dte = df.groupby("month")["dte"].transform("max")
+        is_last = df["dte"].eq(last_dte)
+        df.loc[is_last, "per_day_gas"] = df.loc[is_last, "per_day_gas"] + df.loc[is_last, "rem_gas"]
+        df.loc[is_last, "per_day_rent"] = df.loc[is_last, "per_day_rent"] + df.loc[is_last, "rem_rent"]
+        df.drop(columns=["rem_gas","rem_rent"], inplace=True)
     else:
         df["per_day_gas"] = 0
         df["per_day_rent"] = 0
@@ -477,7 +486,7 @@ with tab_manage:
         st.markdown("احذف سجلًا محددًا من اليومية")
         to_delete = st.selectbox(
             "اختر السجل (بالـ ID والتاريخ والربح)",
-            options=df.apply(lambda r: f"{r['id']} — {r['dte'].date().isoformat()} — ربح {int(r['الربح الصافي لليوم (بدون الغاز/الإيجار)']):,}", axis=1)
+            options=df.apply(lambda r: f"{r['id']} — {r['dte'].date().isoformat()} — ربح {int(r['الربح الصافي لليوم']):,}", axis=1)
         )
         if st.button("🗑️ حذف السجل المحدد"):
             sel_id = int(to_delete.split("—")[0].strip())
