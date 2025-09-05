@@ -3,29 +3,95 @@
 نظام متابعة المخبز — حفظ دائم — متجاوب للموبايل
 """
 
+# ====================== الاستيرادات ======================
+import os
+import sqlite3
+from pathlib import Path
+from datetime import date, datetime, timedelta
+from typing import Dict, Any, Optional
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+
+# يفضّل gspread الحديث مع google.oauth2
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-import json
+from google.oauth2.service_account import Credentials
+
+# ====================== تهيئة الصفحة ======================
+st.set_page_config(
+    page_title="متابعة المخبز — شامل (حفظ دائم)",
+    page_icon="📊",
+    layout="wide",
+)
 
 st.title("📊 نظام متابعة المخبز — حفظ دائم — متجاوب للموبايل")
 
-# اتصال تجريبي مع Google Sheets
-service_account_info = json.loads(st.secrets["gcp_service_account"]["json"])
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-credentials = ServiceAccountCredentials.from_json_keyfile_dict(service_account_info, scope)
-client = gspread.authorize(credentials)
+# ====================== إعدادات Google Sheets (اختياري) ======================
+def _make_gs_client_from_secrets() -> Optional[gspread.Client]:
+    """
+    يعتمد على محتوى st.secrets.
+    المتوقّع أي من الشكلين:
+      1) st.secrets["gcp_service_account"] = dict فيه مفاتيح الخدمة كاملة (type, private_key, client_email, ...).
+      2) st.secrets["gcp_service_account"]["json"] = نص JSON يحتوي مفاتيح الخدمة.
 
-SHEET_URL = st.secrets["gspread"]["spreadsheet_url"]
-sheet = client.open_by_url(SHEET_URL).sheet1
+    ويفترض وجود:
+      st.secrets["gspread"]["spreadsheet_url"] = رابط Google Sheet
+    """
+    try:
+        if "gcp_service_account" not in st.secrets:
+            return None
 
-# إضافة صف اختبار وعرض البيانات
-sheet.append_row(["test from Streamlit", "it works!"])
-st.dataframe(sheet.get_all_records())
+        # إما dict مباشر أو نص JSON داخل حقل "json"
+        svc = st.secrets["gcp_service_account"]
+        if isinstance(svc, dict) and "json" in svc and isinstance(svc["json"], str):
+            import json
+            service_account_info = json.loads(svc["json"])
+        else:
+            service_account_info = dict(svc)
+
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        creds = Credentials.from_service_account_info(service_account_info, scopes=scopes)
+        client = gspread.authorize(creds)
+        return client
+    except Exception as e:
+        st.warning(f"تعذّر إنشاء عميل Google Sheets: {e}")
+        return None
+
+
+def gs_try_connect_and_sample():
+    if "gspread" not in st.secrets or "spreadsheet_url" not in st.secrets["gspread"]:
+        st.error("الرجاء إضافة gspread.spreadsheet_url داخل secrets.")
+        return
+    url = st.secrets["gspread"]["spreadsheet_url"]
+    client = _make_gs_client_from_secrets()
+    if not client:
+        st.error("تعذّر إنشاء الاتصال. افحص مفاتيح الخدمة في secrets.")
+        return
+    try:
+        sh = client.open_by_url(url)
+        sheet = sh.sheet1
+        # لا نضيف صف تلقائيًا في كل تشغيل — خلّيناها بزر اختبار فقط
+        sheet.append_row(["streamlit test", datetime.now().isoformat()])
+        records = sheet.get_all_records()
+        st.success("تمت الكتابة والقراءة من Google Sheets بنجاح ✅")
+        st.dataframe(pd.DataFrame(records))
+    except Exception as e:
+        st.error(f"فشل الاتصال بـ Google Sheets: {e}")
+
+
+with st.expander("🔗 ربط Google Sheets (اختبار اختياري)", expanded=False):
+    st.caption("تأكد من إعداد secrets كما بالخطوات أسفل الرد. اضغط الزر لاختبار الكتابة/القراءة.")
+    if st.button("🧪 اختبار الاتصال بـ Google Sheets"):
+        gs_try_connect_and_sample()
 
 # ====================== مسار قاعدة البيانات (حفظ دائم) ======================
+THOUSAND = 1000
+GROWTH_WINDOW_DAYS = 14
+
 def _default_db_path() -> str:
     env = os.getenv("BAKERY_DB_PATH", "").strip()
     if env:
@@ -43,10 +109,6 @@ def _default_db_path() -> str:
     return str(cwd_dir / "bakery_tracker.sqlite")
 
 DB_FILE = _default_db_path()
-THOUSAND = 1000
-GROWTH_WINDOW_DAYS = 14
-
-st.set_page_config(page_title="متابعة المخبز — شامل (حفظ دائم)", page_icon="📊", layout="wide")
 
 # ====================== مظهر بسيط متجاوب ======================
 st.markdown(
@@ -62,7 +124,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("📊 نظام متابعة المخبز — شامل (حفظ دائم)")
 st.caption(f"📁 قاعدة البيانات: `{DB_FILE}` — pandas: {pd.__version__}")
 
 # ====================== أدوات مساعدة ======================
@@ -338,12 +399,12 @@ def init_db():
     conn.commit()
     conn.close()
 
-# ==== جداول إضافية ====
+# ==== جداول إضافية (مضمّنة أعلاه) ====
 def init_inventory_tables():
-    pass  # مدمجة أعلاه داخل init_db
+    pass
 
 def init_gas_table():
-    pass  # مدمجة أعلاه داخل init_db
+    pass
 
 # تهيئة لمرة واحدة
 if "db_init" not in st.session_state:
@@ -392,7 +453,7 @@ def add_money_move(dte: date, source: str, amount: int, reason: str):
     conn.commit(); conn.close()
 
 @st.cache_data(show_spinner=False)
-def money_balances() -> dict:
+def money_balances() -> Dict[str, int]:
     conn = _connect()
     df = pd.read_sql_query("SELECT source, SUM(amount) AS bal FROM money_moves GROUP BY source", conn)
     conn.close()
@@ -432,7 +493,7 @@ def add_flour_purchase(dte: date, bags: int, bag_price: int, note: str = ""):
     conn.commit(); conn.close()
 
 @st.cache_data(show_spinner=False)
-def flour_stock_on_hand(as_of: date | None = None) -> dict:
+def flour_stock_on_hand(as_of: Optional[date] = None) -> Dict[str, int]:
     conn = _connect()
     params = []
     q_buy = "SELECT SUM(bags) FROM flour_purchases"
