@@ -532,3 +532,90 @@ with tab_manage:
             return f"{head}\n{body}\n{tail}\n"
 
         def _get_sheet_id_from_secrets():
+            # جرّب المستوى الأعلى
+            if "GOOGLE_SHEETS_DOC_ID" in st.secrets:
+                return st.secrets["GOOGLE_SHEETS_DOC_ID"]
+            # جرّب داخل [google] باسم sheet_id
+            if "google" in st.secrets and "sheet_id" in st.secrets["google"]:
+                return st.secrets["google"]["sheet_id"]
+            # جرّب داخل [google] باسم GOOGLE_SHEETS_DOC_ID
+            if "google" in st.secrets and "GOOGLE_SHEETS_DOC_ID" in st.secrets["google"]:
+                return st.secrets["google"]["GOOGLE_SHEETS_DOC_ID"]
+            return None
+
+        # فاحص سريع للأسرار (اختياري للفحص)
+        with st.expander("🔎 فحص الإعدادات (Secrets)"):
+            has_google = "google" in st.secrets
+            sheet_id_detected = _get_sheet_id_from_secrets() is not None
+            st.write("قسم [google] موجود:", "✅" if has_google else "❌")
+            st.write("Sheet ID متوفر (في الأعلى أو داخل [google]):", "✅" if sheet_id_detected else "❌")
+            if has_google:
+                must_keys = ["type","project_id","private_key_id","private_key","client_email"]
+                missing = [k for k in must_keys if k not in st.secrets["google"]]
+                st.write("حقول أساسية ناقصة في [google]:", "❌ " + ", ".join(missing) if missing else "✅ لا شيء ناقص")
+
+        if st.button("🔄 Sync to Google Sheets"):
+            try:
+                from google.oauth2.service_account import Credentials
+                import gspread
+                from gspread_dataframe import set_with_dataframe
+
+                # 1) قراءة أسرار الخدمة
+                if "google" not in st.secrets:
+                    raise RuntimeError("قسم [google] غير موجود في Secrets.")
+                gsec = dict(st.secrets["google"])
+                if "private_key" not in gsec:
+                    raise RuntimeError("حقل private_key غير موجود داخل [google].")
+                gsec["private_key"] = _normalize_private_key(gsec["private_key"])
+
+                sheet_id = _get_sheet_id_from_secrets()
+                if not sheet_id:
+                    raise RuntimeError(
+                        "لم يتم العثور على Sheet ID. أضِفه إمّا كـ GOOGLE_SHEETS_DOC_ID في أعلى Secrets "
+                        "أو كـ sheet_id داخل قسم [google]."
+                    )
+
+                # 2) إنشاء الاعتماد والاتصال
+                SCOPES = [
+                    "https://www.googleapis.com/auth/spreadsheets",
+                    "https://www.googleapis.com/auth/drive.file",
+                ]
+                creds = Credentials.from_service_account_info(gsec, scopes=SCOPES)
+                client = gspread.authorize(creds)
+                sh = client.open_by_key(sheet_id)
+
+                # 3) تحضير ورقة Daily
+                try:
+                    ws_daily = sh.worksheet("Daily")
+                except gspread.exceptions.WorksheetNotFound:
+                    ws_daily = sh.add_worksheet(title="Daily", rows=2000, cols=50)
+
+                daily = fetch_daily_df()
+                d = daily.copy()
+                if not d.empty and "dte" in d.columns:
+                    d["dte"] = d["dte"].dt.date.astype(str)
+                ws_daily.clear()
+                set_with_dataframe(ws_daily, d)
+
+                # 4) تحضير ورقة Monthly (إن وُجدت بيانات)
+                monthly = fetch_monthly_df()
+                if monthly is not None and not monthly.empty:
+                    try:
+                        ws_monthly = sh.worksheet("Monthly")
+                    except gspread.exceptions.WorksheetNotFound:
+                        ws_monthly = sh.add_worksheet(title="Monthly", rows=200, cols=30)
+                    m = monthly.copy()
+                    if "month" in m.columns:
+                        m["month"] = pd.to_datetime(m["month"]).dt.date.astype(str)
+                    ws_monthly.clear()
+                    set_with_dataframe(ws_monthly, m)
+
+                st.success("تمت المزامنة بنجاح إلى أوراق Daily و Monthly ✅")
+
+            except Exception as e:
+                st.error(f"فشلت المزامنة: {e}")
+                st.caption(
+                    "تأكد من: قسم [google] مضبوط و private_key في سطر واحد، "
+                    "وأن Sheet ID مضاف إمّا كـ GOOGLE_SHEETS_DOC_ID (خارج [google]) أو كـ sheet_id داخل [google]، "
+                    "وأن الشيت متشارك مع client_email بصلاحية Editor."
+                )
