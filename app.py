@@ -122,9 +122,12 @@ def init_db():
         _ensure_table(conn, "monthly", SCHEMA_MONTHLY)
         conn.close()
     except Exception as e:
-        st.error("تعذّر فتح قاعدة البيانات في المسارات الافتراضية. سيتم تشغيل التطبيق بدون حفظ دائم (ذاكرة مؤقتة).
-" \
-                 "يمكنك تحديد مسار ثابت عبر متغير البيئة DB_DIR.")
+        msg = (
+            "تعذّر فتح قاعدة البيانات في المسارات الافتراضية. "
+            "سيتم تشغيل التطبيق بدون حفظ دائم (ذاكرة مؤقتة). "
+            "يمكنك تحديد مسار ثابت عبر متغير البيئة DB_DIR."
+        )
+        st.error(msg)
         # استخدام SQLite in-memory كحل أخير
         global DB_FILE, DB_PERSISTENT
         DB_FILE, DB_PERSISTENT = ":memory:", False
