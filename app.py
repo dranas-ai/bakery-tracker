@@ -2,26 +2,6 @@
 """
 نظام متابعة المخبز — حفظ دائم — متجاوب للموبايل
 """
-# --- Test Google Sheets connection ---
-service_account_info = json.loads(st.secrets["gcp_service_account"]["json"])
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-credentials = ServiceAccountCredentials.from_json_keyfile_dict(service_account_info, scope)
-client = gspread.authorize(credentials)
-
-# Open the sheet from secrets
-SHEET_URL = st.secrets["gspread"]["spreadsheet_url"]
-sheet = client.open_by_url(SHEET_URL).sheet1
-
-# Test: add a row
-sheet.append_row(["test from Streamlit", "it works!"])
-
-# Show all rows
-st.write(sheet.get_all_records())
-
-import os
-import sqlite3
-from datetime import date, datetime, timedelta
-from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
@@ -29,6 +9,21 @@ import streamlit as st
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import json
+
+st.title("📊 نظام متابعة المخبز — حفظ دائم — متجاوب للموبايل")
+
+# اتصال تجريبي مع Google Sheets
+service_account_info = json.loads(st.secrets["gcp_service_account"]["json"])
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+credentials = ServiceAccountCredentials.from_json_keyfile_dict(service_account_info, scope)
+client = gspread.authorize(credentials)
+
+SHEET_URL = st.secrets["gspread"]["spreadsheet_url"]
+sheet = client.open_by_url(SHEET_URL).sheet1
+
+# إضافة صف اختبار وعرض البيانات
+sheet.append_row(["test from Streamlit", "it works!"])
+st.dataframe(sheet.get_all_records())
 
 # ====================== مسار قاعدة البيانات (حفظ دائم) ======================
 def _default_db_path() -> str:
