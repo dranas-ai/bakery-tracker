@@ -8,7 +8,36 @@ import plotly.express as px
 # ============================= الإعدادات العامة =============================
 CURRENCY = "جنيه"
 THOUSAND = 1000  # أساس التسعير
-DB_FILE = "/data/bakery_tracker.db"  # حفظ دائم
+# مسار قاعدة البيانات — نحاول مسارات متعددة لضمان العمل على السحابة/المحلي
+import os
+
+def _resolve_db_path():
+    candidates = []
+    # 1) متغير بيئة اختياري
+    env_dir = os.environ.get("DB_DIR")
+    if env_dir:
+        candidates.append(env_dir)
+    # 2) مجلد محلي (قد يكون للقراءة فقط على بعض المنصات)
+    candidates.append(os.path.join(os.getcwd(), "data"))
+    # 3) مجلد /data لو متاح
+    candidates.append("/data")
+    # 4) مجلد مؤقت (دوام مؤقت فقط)
+    candidates.append("/tmp/bakery_data")
+
+    for d in candidates:
+        try:
+            os.makedirs(d, exist_ok=True)
+            testfile = os.path.join(d, ".__wtest__")
+            with open(testfile, "w") as f:
+                f.write("ok")
+            os.remove(testfile)
+            return os.path.join(d, "bakery_tracker.db"), (d not in ["/tmp/bakery_data"])  # True = دائم غالبًا
+        except Exception:
+            continue
+    # fallback أخير: ذاكرة فقط
+    return ":memory:", False
+
+DB_FILE, DB_PERSISTENT = _resolve_db_path()  # محاولة حفظ دائم
 FUND_LOOKBACK_DAYS = 30  # نافذة تمويل آخر X يوم — عدلناها إلى 30 يوم
 
 # واجهة وتهيئة للموبايل + RTL
@@ -87,10 +116,18 @@ def _ensure_table(conn, name: str, schema: dict):
 
 
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    _ensure_table(conn, "daily", SCHEMA_DAILY)
-    _ensure_table(conn, "monthly", SCHEMA_MONTHLY)
-    conn.close()
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        _ensure_table(conn, "daily", SCHEMA_DAILY)
+        _ensure_table(conn, "monthly", SCHEMA_MONTHLY)
+        conn.close()
+    except Exception as e:
+        st.error("تعذّر فتح قاعدة البيانات في المسارات الافتراضية. سيتم تشغيل التطبيق بدون حفظ دائم (ذاكرة مؤقتة).
+" \
+                 "يمكنك تحديد مسار ثابت عبر متغير البيئة DB_DIR.")
+        # استخدام SQLite in-memory كحل أخير
+        global DB_FILE, DB_PERSISTENT
+        DB_FILE, DB_PERSISTENT = ":memory:", False
 
 
 def insert_daily(row: dict):
@@ -120,9 +157,63 @@ def upsert_monthly(month_key: str, gas: int, rent: int):
 def fetch_daily_df() -> pd.DataFrame:
     conn = sqlite3.connect(DB_FILE)
     df = pd.read_sql_query("SELECT * FROM daily ORDER BY dte ASC, id ASC", conn, parse_dates=["dte"])
+    # نقرأ الشهري لاحتساب التوزيع اليومي (غاز/إيجار)
+    dfm = pd.read_sql_query("SELECT * FROM monthly ORDER BY month ASC, id ASC", conn)
     conn.close()
     if df.empty:
         return df
+
+    # السعر للوحدة (عدد الوحدات لكل 1000 -> سعر للوحدة) بدون كسور
+    price_baton = (THOUSAND // df["u1000_baton"].replace(0, pd.NA)).fillna(0).astype(int)
+    price_round = (THOUSAND // df["u1000_round"].replace(0, pd.NA)).fillna(0).astype(int)
+
+    # المبيعات لكل نوع
+    sales_baton = (df["units_baton"].fillna(0).astype(int) * price_baton).astype(int)
+    sales_round = (df["units_round"].fillna(0).astype(int) * price_round).astype(int)
+
+    df["سعر الوحدة — بسطونة"] = price_baton
+    df["سعر الوحدة — مدور"] = price_round
+    df["مبيعات البسطونة"] = sales_baton
+    df["مبيعات المدور"] = sales_round
+
+    # إجمالي المبيعات
+    df["إجمالي المبيعات"] = (sales_baton + sales_round).astype(int)
+
+    # تكلفة الدقيق اليومية
+    flour_cost = (
+        df["flour_bags"].fillna(0).astype(int) * df["flour_bag_price"].fillna(0).astype(int)
+    ).astype(int) + df["flour_extra"].fillna(0).astype(int)
+
+    # مصاريف يومية (بدون غاز/إيجار)
+    expense_cols = [
+        "yeast","salt","oil","electricity","water","salaries",
+        "maintenance","petty","other_exp","ice","breakfast","daily_wage"
+    ]
+    daily_core = (flour_cost + df[expense_cols].fillna(0).astype(int).sum(axis=1)).astype(int)
+    df["الإجمالي اليومي للمصروفات (بدون الغاز والإيجار)"] = daily_core
+
+    # ===== توزيع الغاز والإيجار على الأيام =====
+    df["month"] = df["dte"].dt.to_period("M").dt.to_timestamp()
+    if dfm is not None and not dfm.empty:
+        m = dfm.copy()
+        m["month"] = pd.to_datetime(m["month"])  # YYYY-MM-01
+        # عدد الأيام في كل شهر موجود في اليومية
+        days_per_month = df.groupby("month").size().rename("days").reset_index()
+        m = m.merge(days_per_month, on="month", how="right").fillna({"gas":0, "rent":0})
+        m["per_day_gas"] = (m["gas"].astype(int) // m["days"].replace(0, pd.NA)).fillna(0).astype(int)
+        m["per_day_rent"] = (m["rent"].astype(int) // m["days"].replace(0, pd.NA)).fillna(0).astype(int)
+        df = df.merge(m[["month","per_day_gas","per_day_rent"]], on="month", how="left").fillna({"per_day_gas":0, "per_day_rent":0})
+    else:
+        df["per_day_gas"] = 0
+        df["per_day_rent"] = 0
+
+    df["تكلفة يومية مُوزعة (غاز + إيجار)"] = (df["per_day_gas"].astype(int) + df["per_day_rent"].astype(int))
+    df["الإجمالي اليومي للمصروفات (شامل الموزع)"] = (daily_core + df["تكلفة يومية مُوزعة (غاز + إيجار)"]).astype(int)
+
+    # الربح الصافي اليومي (شامل توزيع الغاز/الإيجار)
+    df["الربح الصافي لليوم"] = (df["إجمالي المبيعات"] - df["الإجمالي اليومي للمصروفات (شامل الموزع)"]).astype(int)
+
+    return df
 
     # السعر للوحدة (عدد الوحدات لكل 1000 -> سعر للوحدة) بدون كسور
     price_baton = (THOUSAND // df["u1000_baton"].replace(0, pd.NA)).fillna(0).astype(int)
@@ -307,11 +398,11 @@ with tab_dash:
     if df.empty:
         st.info("لا توجد بيانات بعد. أضف أول سجل من تبويب الإدخال.")
     else:
-        # ملخصات يومية (بدون الغاز/الإيجار)
+        # ملخصات يومية شاملة التوزيع
         total_revenue = int(df["إجمالي المبيعات"].sum())
-        total_exp_daily = int(df["الإجمالي اليومي للمصروفات (بدون الغاز والإيجار)"].sum())
+        total_exp_daily = int(df["الإجمالي اليومي للمصروفات (شامل الموزع)"].sum())
         total_profit_daily = int(total_revenue - total_exp_daily)
-        avg_daily_profit = int(df["الربح الصافي لليوم (بدون الغاز/الإيجار)"].replace(0, pd.NA).dropna().mean() or 0)
+        avg_daily_profit = int(df["الربح الصافي لليوم"].replace(0, pd.NA).dropna().mean() or 0)
         total_funding = int(df["funding"].fillna(0).sum())
 
         # تمويل آخر 30 يوم
@@ -320,8 +411,8 @@ with tab_dash:
 
         c1,c2,c3,c4 = st.columns(4)
         c1.metric("إجمالي المبيعات", f"{total_revenue:,}")
-        c2.metric("إجمالي المصروفات (بدون الغاز/الإيجار)", f"{total_exp_daily:,}")
-        c3.metric("صافي الربح اليومي (بدون الغاز/الإيجار)", f"{total_profit_daily:,}")
+        c2.metric("إجمالي المصروفات (شامل غاز/إيجار موزع)", f"{total_exp_daily:,}")
+        c3.metric("صافي الربح (شامل الموزع)", f"{total_profit_daily:,}")
         c4.metric("إجمالي التمويل الذاتي", f"{total_funding:,}")
 
         c5,c6 = st.columns(2)
@@ -329,50 +420,15 @@ with tab_dash:
         status = "المخبز يغطي نفسه" if (total_profit_daily >= 0 and recent_fund == 0) else "المخبز يعتمد على التمويل الذاتي"
         c6.metric("⚖️ حالة المخبز", status)
 
-        st.markdown("### الربح الصافي اليومي (بدون الغاز/الإيجار)")
-        fig = px.line(df, x="dte", y="الربح الصافي لليوم (بدون الغاز/الإيجار)", markers=True)
+        st.markdown("### الربح الصافي اليومي (شامل توزيع الغاز/الإيجار)")
+        fig = px.line(df, x="dte", y="الربح الصافي لليوم", markers=True)
         fig.update_layout(xaxis_title="التاريخ", yaxis_title=f"الربح الصافي ({CURRENCY})")
         st.plotly_chart(fig, use_container_width=True)
 
-        # ======= تقرير شهري =======
-        st.markdown("## 🗓️ التقرير الشهري")
-        # تجهيز إطار شهري من اليومية
-        g = df.copy()
-        g["month"] = g["dte"].dt.to_period("M").dt.to_timestamp()
-        monthly_daily = g.groupby("month", as_index=False).agg({
-            "إجمالي المبيعات":"sum",
-            "الإجمالي اليومي للمصروفات (بدون الغاز والإيجار)":"sum"
-        })
-        monthly_daily.rename(columns={
-            "إجمالي المبيعات":"مبيعات شهرية (إجمالي)",
-            "الإجمالي اليومي للمصروفات (بدون الغاز والإيجار)":"مصاريف يومية مجموع الشهر"
-        }, inplace=True)
-
-        # دمج الغاز/الإيجار الشهري
-        if dfm is not None and not dfm.empty:
-            dfm2 = dfm.copy()
-            dfm2["month"] = pd.to_datetime(dfm2["month"])  # YYYY-MM-01
-        else:
-            dfm2 = pd.DataFrame(columns=["month","gas","rent"]).astype({"gas":"int64","rent":"int64"})
-
-        monthly = monthly_daily.merge(dfm2, how="left", on="month").fillna({"gas":0, "rent":0})
-        monthly["إجمالي المصروفات (شاملة الغاز والإيجار)"] = (
-            monthly["مصاريف يومية مجموع الشهر"].astype(int) + monthly["gas"].astype(int) + monthly["rent"].astype(int)
-        )
-        monthly["صافي الربح الشهري"] = (
-            monthly["مبيعات شهرية (إجمالي)"].astype(int) - monthly["إجمالي المصروفات (شاملة الغاز والإيجار)"].astype(int)
-        )
-
-        # عرض المختصر
-        st.dataframe(monthly.rename(columns={
-            "month":"الشهر","gas":"غاز شهري","rent":"إيجار شهري"
-        }), use_container_width=True)
-
-        # رسم عمودي للأرباح الشهرية
-        if not monthly.empty:
-            bar = px.bar(monthly, x="month", y="صافي الربح الشهري")
-            bar.update_layout(xaxis_title="الشهر", yaxis_title=f"صافي الربح ({CURRENCY})")
-            st.plotly_chart(bar, use_container_width=True)
+        st.markdown("### ملخص الإيرادات مقابل المصروفات")
+        sum_df = pd.DataFrame({"البند": ["إجمالي المبيعات", "إجمالي المصروفات"], "القيمة": [total_revenue, total_exp_daily]})
+        bar = px.bar(sum_df, x="البند", y="القيمة")
+        st.plotly_chart(bar, use_container_width=True)
 
         # تصدير
         st.markdown("#### تصدير إلى Excel")
@@ -421,4 +477,5 @@ with tab_manage:
             st.success("تم الحذف. حدّث الصفحة لو ما اتحدّث الجدول تلقائيًا.")
 
         st.markdown("---")
-        st.caption("البيانات تُحفظ بشكل دائم في SQLite داخل مجلد /data. يُنصح بأخذ نسخة احتياطية دورية بالتصدير إلى Excel.")
+        persist_note = "دائم" if DB_PERSISTENT else "مؤقّت (اعيّن DB_DIR لمسار كتابة دائم)"
+        st.caption(f"قاعدة البيانات: {DB_FILE} — حفظ {persist_note}.")
